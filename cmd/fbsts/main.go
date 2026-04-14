@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
@@ -21,6 +22,8 @@ var flags config.FlagOverrides
 var configPath string
 var flagScopes []string
 var flagContinueOnError bool
+var flagRenderer string
+var flagDemo bool
 
 func main() {
 	rootCmd := &cobra.Command{
@@ -62,6 +65,10 @@ func main() {
 
 	// Config flag
 	validateCmd.Flags().StringVar(&configPath, "config", "", "Path to a .fbsts.toml config file")
+
+	// Renderer flags
+	validateCmd.Flags().StringVar(&flagRenderer, "renderer", "panel", "Renderer style: panel or subway")
+	validateCmd.Flags().BoolVar(&flagDemo, "demo", false, "Demo mode: subway renderer with inter-step pacing")
 
 	initCmd := &cobra.Command{
 		Use:   "init",
@@ -165,12 +172,27 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating HTTP client: %w", err)
 	}
 
-	// 10. Create PanelRenderer writing to os.Stdout.
-	renderer := render.NewPanelRenderer(os.Stdout)
+	// 10. Create renderer based on flags.
+	var rend render.Renderer
+	rendererChoice := flagRenderer
+	if flagDemo {
+		rendererChoice = "subway"
+	}
+
+	switch rendererChoice {
+	case "subway":
+		stepNames := []string{"OktaDeviceAuth", "TokenDecode", "STSAssume", "S3Validate"}
+		sr := render.NewSubwayRenderer(stepNames)
+		sr.Start()
+		defer sr.Stop()
+		rend = sr
+	default:
+		rend = render.NewPanelRenderer(os.Stdout)
+	}
 
 	// 11. Show TLS warning if insecure.
 	if cfg.Insecure {
-		renderer.RenderWarning("TLS certificate verification is disabled (--insecure). Do not use in production.")
+		rend.RenderWarning("TLS certificate verification is disabled (--insecure). Do not use in production.")
 	}
 
 	// 12. Build pipeline.
@@ -183,7 +205,10 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	// 13. Create FlowContext and run via runner.Run.
 	flowCtx := steps.NewFlowContext(cfg, client)
-	r := runner.New(renderer)
+	r := runner.New(rend)
+	if flagDemo {
+		r.DemoPace = 800 * time.Millisecond
+	}
 	if err := r.Run(flowCtx, pipeline, cfg.ContinueOnError); err != nil {
 		return err
 	}
