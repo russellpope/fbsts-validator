@@ -1,7 +1,274 @@
 package main
 
-import "fmt"
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/BurntSushi/toml"
+	"github.com/spf13/cobra"
+
+	"github.com/pure-experimental/rp-fbstsvalidator/internal/config"
+	"github.com/pure-experimental/rp-fbstsvalidator/internal/render"
+	"github.com/pure-experimental/rp-fbstsvalidator/internal/runner"
+	"github.com/pure-experimental/rp-fbstsvalidator/internal/steps"
+)
+
+var version = "dev"
+
+var flags config.FlagOverrides
+var configPath string
+var flagScopes []string
+var flagContinueOnError bool
 
 func main() {
-	fmt.Println("fbsts")
+	rootCmd := &cobra.Command{
+		Use:   "fbsts",
+		Short: "FlashBlade STS Validator",
+		Long:  "Validates STS (Security Token Service) functionality on Pure Storage FlashBlade arrays for object storage.",
+	}
+
+	validateCmd := &cobra.Command{
+		Use:   "validate",
+		Short: "Run the full STS validation flow",
+		Long:  "Authenticates with Okta via device code flow, obtains temporary credentials via AssumeRoleWithWebIdentity, and validates them with S3 CRUD operations.",
+		RunE:  runValidate,
+	}
+
+	// Okta flags
+	validateCmd.Flags().StringVar(&flags.OktaURL, "okta-url", "", "Okta tenant URL (e.g. https://myorg.okta.com)")
+	validateCmd.Flags().StringVar(&flags.OktaClientID, "client-id", "", "Okta OIDC client ID")
+	validateCmd.Flags().StringSliceVar(&flagScopes, "scopes", nil, "OIDC scopes (comma-separated)")
+
+	// FlashBlade flags
+	validateCmd.Flags().StringVar(&flags.STSEndpoint, "sts-endpoint", "", "FlashBlade STS endpoint URL")
+	validateCmd.Flags().StringVar(&flags.DataEndpoint, "data-endpoint", "", "FlashBlade S3 data endpoint URL")
+	validateCmd.Flags().StringVar(&flags.RoleARN, "role-arn", "", "IAM role ARN for AssumeRoleWithWebIdentity")
+	validateCmd.Flags().StringVar(&flags.Account, "account", "", "FlashBlade account name")
+
+	// S3 flags
+	validateCmd.Flags().StringVar(&flags.Bucket, "bucket", "", "S3 test bucket name")
+	validateCmd.Flags().StringVar(&flags.KeyPrefix, "key-prefix", "", "S3 object key prefix for test objects")
+
+	// TLS flags
+	validateCmd.Flags().BoolVar(&flags.Insecure, "insecure", false, "Skip TLS certificate verification")
+	validateCmd.Flags().StringVar(&flags.CACert, "ca-cert", "", "Path to PEM-encoded CA certificate bundle")
+
+	// Behavior flags
+	validateCmd.Flags().BoolVar(&flagContinueOnError, "continue-on-error", false, "Continue pipeline on step failure")
+	validateCmd.Flags().StringVar(&flags.Token, "token", "", "Pre-supplied OIDC token (skips Okta device auth)")
+	validateCmd.Flags().IntVar(&flags.Duration, "duration", 0, "Requested credential duration in seconds")
+
+	// Config flag
+	validateCmd.Flags().StringVar(&configPath, "config", "", "Path to a .fbsts.toml config file")
+
+	initCmd := &cobra.Command{
+		Use:   "init",
+		Short: "Generate a sample .fbsts.toml config file",
+		RunE:  runInit,
+	}
+
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print version information",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("fbsts %s\n", version)
+		},
+	}
+
+	rootCmd.AddCommand(validateCmd, initCmd, versionCmd)
+
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func runValidate(cmd *cobra.Command, args []string) error {
+	// 1. Determine config paths.
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = ""
+	}
+	homePath := ""
+	if homeDir != "" {
+		homePath = filepath.Join(homeDir, ".fbsts.toml")
+		if _, err := os.Stat(homePath); os.IsNotExist(err) {
+			homePath = ""
+		}
+	}
+	localPath := ".fbsts.toml"
+	if _, err := os.Stat(localPath); os.IsNotExist(err) {
+		localPath = ""
+	}
+
+	// 2. Build a merged TOMLConfig from config files.
+	merged := &config.TOMLConfig{}
+	for _, path := range []string{homePath, localPath, configPath} {
+		if path == "" {
+			continue
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("open config %q: %w", path, err)
+		}
+		var tc config.TOMLConfig
+		_, decodeErr := toml.NewDecoder(f).Decode(&tc)
+		f.Close()
+		if decodeErr != nil {
+			return fmt.Errorf("parse config %q: %w", path, decodeErr)
+		}
+		mergeTOMLConfig(merged, &tc)
+	}
+
+	// 3. Check if --insecure was explicitly set.
+	if cmd.Flags().Changed("insecure") {
+		flags.Insecure = true
+	}
+
+	// 4. Apply CLI flag overrides.
+	config.ApplyOverrides(merged, &flags)
+
+	// 5. Apply continue-on-error and scopes flags.
+	merged.ContinueOnError = flagContinueOnError
+	if len(flagScopes) > 0 {
+		merged.Okta.Scopes = flagScopes
+	}
+
+	// 6. Prompt for missing values (skip Okta prompts if --token provided).
+	reader := bufio.NewReader(os.Stdin)
+	if flags.Token != "" {
+		// Pre-fill Okta fields so PromptMissing skips them; the OktaDeviceAuth
+		// step short-circuits when PreSuppliedToken is set so these are unused.
+		if merged.Okta.TenantURL == "" {
+			merged.Okta.TenantURL = "(token-provided)"
+		}
+		if merged.Okta.ClientID == "" {
+			merged.Okta.ClientID = "(token-provided)"
+		}
+	}
+	if err := config.PromptMissing(merged, reader); err != nil {
+		return fmt.Errorf("prompting for config: %w", err)
+	}
+
+	// 7. Convert to steps config.
+	cfg := merged.ToStepsConfig()
+
+	// 8. Set pre-supplied token.
+	if flags.Token != "" {
+		cfg.PreSuppliedToken = flags.Token
+	}
+
+	// 9. Create HTTP client.
+	client, err := config.NewHTTPClient(cfg.Insecure, cfg.CACert)
+	if err != nil {
+		return fmt.Errorf("creating HTTP client: %w", err)
+	}
+
+	// 10. Create PanelRenderer writing to os.Stdout.
+	renderer := render.NewPanelRenderer(os.Stdout)
+
+	// 11. Show TLS warning if insecure.
+	if cfg.Insecure {
+		renderer.RenderWarning("TLS certificate verification is disabled (--insecure). Do not use in production.")
+	}
+
+	// 12. Build pipeline.
+	pipeline := []steps.Step{
+		steps.NewOktaDeviceAuthStep(),
+		steps.NewTokenDecodeStep(),
+		steps.NewSTSAssumeStep(),
+		steps.NewS3ValidateStep(),
+	}
+
+	// 13. Create FlowContext and run via runner.Run.
+	flowCtx := steps.NewFlowContext(cfg, client)
+	r := runner.New(renderer)
+	if err := r.Run(flowCtx, pipeline, cfg.ContinueOnError); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func runInit(cmd *cobra.Command, args []string) error {
+	const targetPath = ".fbsts.toml"
+
+	// 1. Check if .fbsts.toml already exists.
+	if _, err := os.Stat(targetPath); err == nil {
+		return fmt.Errorf("%s already exists; remove it first or edit it directly", targetPath)
+	}
+
+	// 2. Write sample config file.
+	const sampleConfig = `# FlashBlade STS Validator Configuration
+# Copy this to ~/.fbsts.toml or ./.fbsts.toml and fill in your values.
+# CLI flags override config file values. See: fbsts validate --help
+
+[okta]
+tenant_url = "https://myorg.okta.com"
+client_id = "0oa1b2c3d4e5f6g7h8i9"
+scopes = ["openid", "profile", "groups"]
+
+[flashblade]
+sts_endpoint = "https://fb-sts.example.com"
+data_endpoint = "https://fb-data.example.com"
+role_arn = "arn:aws:iam::123456789:role/my-role"
+account = "myaccount"
+
+[s3]
+test_bucket = "validation-test"
+test_key_prefix = "fbsts-validate/"
+
+[tls]
+insecure = false
+ca_cert = ""
+`
+
+	if err := os.WriteFile(targetPath, []byte(sampleConfig), 0600); err != nil {
+		return fmt.Errorf("writing %s: %w", targetPath, err)
+	}
+
+	// 3. Print confirmation.
+	fmt.Printf("Created %s — edit it with your Okta and FlashBlade settings.\n", targetPath)
+	return nil
+}
+
+// mergeTOMLConfig copies non-zero values from src into dst.
+func mergeTOMLConfig(dst, src *config.TOMLConfig) {
+	if src.Okta.TenantURL != "" {
+		dst.Okta.TenantURL = src.Okta.TenantURL
+	}
+	if src.Okta.ClientID != "" {
+		dst.Okta.ClientID = src.Okta.ClientID
+	}
+	if len(src.Okta.Scopes) > 0 {
+		dst.Okta.Scopes = src.Okta.Scopes
+	}
+	if src.FlashBlade.STSEndpoint != "" {
+		dst.FlashBlade.STSEndpoint = src.FlashBlade.STSEndpoint
+	}
+	if src.FlashBlade.DataEndpoint != "" {
+		dst.FlashBlade.DataEndpoint = src.FlashBlade.DataEndpoint
+	}
+	if src.FlashBlade.RoleARN != "" {
+		dst.FlashBlade.RoleARN = src.FlashBlade.RoleARN
+	}
+	if src.FlashBlade.Account != "" {
+		dst.FlashBlade.Account = src.FlashBlade.Account
+	}
+	if src.S3.TestBucket != "" {
+		dst.S3.TestBucket = src.S3.TestBucket
+	}
+	if src.S3.TestKeyPrefix != "" {
+		dst.S3.TestKeyPrefix = src.S3.TestKeyPrefix
+	}
+	if src.TLS.Insecure {
+		dst.TLS.Insecure = src.TLS.Insecure
+	}
+	if src.TLS.CACert != "" {
+		dst.TLS.CACert = src.TLS.CACert
+	}
+	if src.Duration != 0 {
+		dst.Duration = src.Duration
+	}
 }
