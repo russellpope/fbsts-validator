@@ -1,0 +1,14 @@
+# Binaries
+fbsts
+*.exe
+
+# Brainstorm artifacts
+.superpowers/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
