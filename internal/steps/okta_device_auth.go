@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/pure-experimental/rp-fbstsvalidator/internal/browser"
 )
 
 // OktaDeviceAuthStep performs the OAuth 2.0 device authorization grant flow
@@ -76,13 +78,14 @@ func (s *OktaDeviceAuthStep) Execute(ctx *FlowContext) (*StepResult, error) {
 	}
 
 	// 3. Display the user code and verification URL.
-	fmt.Printf("\nOpen the following URL in your browser to authenticate:\n\n")
+	browserURL := devAuth.VerificationURI
 	if devAuth.VerificationURIComplete != "" {
-		fmt.Printf("  %s\n\n", devAuth.VerificationURIComplete)
-	} else {
-		fmt.Printf("  %s\n\n", devAuth.VerificationURI)
+		browserURL = devAuth.VerificationURIComplete
 	}
+	fmt.Printf("\nOpen the following URL in your browser to authenticate:\n\n")
+	fmt.Printf("  %s\n\n", browserURL)
 	fmt.Printf("User code: %s\n\n", devAuth.UserCode)
+	browser.Open(browserURL)
 
 	// 4. Poll the token endpoint until authorized or timeout.
 	tok, err := s.pollToken(ctx, discovery.TokenEndpoint, devAuth)
