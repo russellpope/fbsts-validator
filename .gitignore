@@ -1,6 +1,12 @@
 # Binaries
 /fbsts
+/fbsts-*
 *.exe
+/build/
+
+# Config and secrets (may contain credentials)
+.fbsts.toml
+*.secret
 
 # Brainstorm artifacts
 .superpowers/
