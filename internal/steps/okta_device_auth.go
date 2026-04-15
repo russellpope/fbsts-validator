@@ -77,14 +77,12 @@ func (s *OktaDeviceAuthStep) Execute(ctx *FlowContext) (*StepResult, error) {
 		return nil, err
 	}
 
-	// 3. Display the user code and verification URL.
+	// 3. Show compact auth prompt and open browser.
 	browserURL := devAuth.VerificationURI
 	if devAuth.VerificationURIComplete != "" {
 		browserURL = devAuth.VerificationURIComplete
 	}
-	fmt.Printf("\nOpen the following URL in your browser to authenticate:\n\n")
-	fmt.Printf("  %s\n\n", browserURL)
-	fmt.Printf("User code: %s\n\n", devAuth.UserCode)
+	fmt.Printf("  Authorize: %s  (code: %s)\n", browserURL, devAuth.UserCode)
 	browser.Open(browserURL)
 
 	// 4. Poll the token endpoint until authorized or timeout.
