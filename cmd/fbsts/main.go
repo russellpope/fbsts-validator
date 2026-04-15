@@ -277,11 +277,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 	const sampleConfig = `# FlashBlade STS Validator Configuration
 # Copy this to ~/.fbsts.toml or ./.fbsts.toml and fill in your values.
 # CLI flags override config file values. See: fbsts validate --help
+# If both [okta] and [keycloak] are configured, use --idp to select.
 
 [okta]
 tenant_url = "https://myorg.okta.com"
 client_id = "0oa1b2c3d4e5f6g7h8i9"
 scopes = ["openid", "profile", "groups"]
+
+# [keycloak]
+# issuer_url = "https://keycloak.example.com/realms/my-realm"
+# client_id = "my-keycloak-client"
+# scopes = ["openid", "profile"]
 
 [flashblade]
 sts_endpoint = "https://fb-sts.example.com"
@@ -305,7 +311,7 @@ ca_cert = ""
 	}
 
 	// 3. Print confirmation.
-	fmt.Printf("Created %s — edit it with your Okta and FlashBlade settings.\n", targetPath)
+	fmt.Printf("Created %s — edit it with your IDP and FlashBlade settings.\n", targetPath)
 	return nil
 }
 
