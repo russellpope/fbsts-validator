@@ -171,8 +171,8 @@ func (s *STSAssumeStep) Execute(ctx *FlowContext) (*StepResult, error) {
 		{Label: "RoleARN", Value: ctx.Config.RoleARN},
 		{Label: "AssumedRoleARN", Value: ctx.AssumedRoleARN},
 		{Label: "AccessKeyId", Value: ctx.AccessKeyId},
-		{Label: "SecretAccessKey", Value: ctx.SecretAccessKey, Sensitive: true},
-		{Label: "SessionToken", Value: ctx.SessionToken, Sensitive: true},
+		{Label: "SecretAccessKey", Value: ctx.SecretAccessKey, Sensitive: !ctx.Config.Unmask},
+		{Label: "SessionToken", Value: ctx.SessionToken, Sensitive: !ctx.Config.Unmask},
 		{Label: "Expiration", Value: creds.Expiration},
 	}
 

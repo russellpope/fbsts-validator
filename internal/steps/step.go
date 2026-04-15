@@ -40,6 +40,7 @@ type Config struct {
 	ContinueOnError  bool
 	PreSuppliedToken string
 	Duration         int
+	Unmask           bool
 }
 
 // FlowContext carries state between pipeline steps.

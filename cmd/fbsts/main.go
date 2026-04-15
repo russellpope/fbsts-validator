@@ -24,6 +24,7 @@ var flagScopes []string
 var flagContinueOnError bool
 var flagRenderer string
 var flagDemo bool
+var flagUnmask bool
 
 func main() {
 	rootCmd := &cobra.Command{
@@ -62,6 +63,7 @@ func main() {
 	validateCmd.Flags().BoolVar(&flagContinueOnError, "continue-on-error", false, "Continue pipeline on step failure")
 	validateCmd.Flags().StringVar(&flags.Token, "token", "", "Pre-supplied OIDC token (skips Okta device auth)")
 	validateCmd.Flags().IntVar(&flags.Duration, "duration", 0, "Requested credential duration in seconds")
+	validateCmd.Flags().BoolVar(&flagUnmask, "unmask", false, "Show SecretAccessKey and SessionToken in clear text")
 
 	// Config flag
 	validateCmd.Flags().StringVar(&configPath, "config", "", "Path to a .fbsts.toml config file")
@@ -161,10 +163,11 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	// 7. Convert to steps config.
 	cfg := merged.ToStepsConfig()
 
-	// 8. Set pre-supplied token.
+	// 8. Set pre-supplied token and unmask flag.
 	if flags.Token != "" {
 		cfg.PreSuppliedToken = flags.Token
 	}
+	cfg.Unmask = flagUnmask
 
 	// 9. Create HTTP client.
 	client, err := config.NewHTTPClient(cfg.Insecure, cfg.CACert)
