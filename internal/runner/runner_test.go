@@ -83,3 +83,25 @@ func TestRunnerContinueOnError(t *testing.T) {
 		t.Error("step2 should execute despite step1 failure (continue-on-error)")
 	}
 }
+
+func TestRunnerDemoPacing(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(render.NewPanelRenderer(&buf))
+	r.DemoPace = 100 * time.Millisecond
+
+	step1 := &mockStep{name: "Step1", result: &steps.StepResult{Title: "Step 1", Duration: time.Millisecond}}
+	step2 := &mockStep{name: "Step2", result: &steps.StepResult{Title: "Step 2", Duration: time.Millisecond}}
+
+	ctx := steps.NewFlowContext(&steps.Config{}, nil)
+
+	start := time.Now()
+	err := r.Run(ctx, []steps.Step{step1, step2}, false)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if elapsed < 100*time.Millisecond {
+		t.Errorf("demo pacing should add delay, elapsed=%s", elapsed)
+	}
+}

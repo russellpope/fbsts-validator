@@ -10,6 +10,7 @@ import (
 
 type Runner struct {
 	renderer render.Renderer
+	DemoPace time.Duration
 }
 
 func New(renderer render.Renderer) *Runner {
@@ -21,9 +22,13 @@ func (r *Runner) Run(ctx *steps.FlowContext, pipeline []steps.Step, continueOnEr
 	var order []string
 	var firstErr error
 
-	for _, step := range pipeline {
+	for i, step := range pipeline {
 		name := step.Name()
 		order = append(order, name)
+
+		if r.DemoPace > 0 && i > 0 {
+			time.Sleep(r.DemoPace)
+		}
 
 		r.renderer.RenderStepStart(name)
 
