@@ -242,6 +242,8 @@ sts_endpoint = "https://fb-sts.example.com"
 data_endpoint = "https://fb-data.example.com"
 role_arn = "arn:aws:iam::123456789:role/my-role"
 account = "myaccount"
+# STS session duration in seconds (default: 3600)
+# duration = 3600
 
 [s3]
 test_bucket = "validation-test"
@@ -296,7 +298,7 @@ func mergeTOMLConfig(dst, src *config.TOMLConfig) {
 	if src.TLS.CACert != "" {
 		dst.TLS.CACert = src.TLS.CACert
 	}
-	if src.Duration != 0 {
-		dst.Duration = src.Duration
+	if src.FlashBlade.Duration != 0 {
+		dst.FlashBlade.Duration = src.FlashBlade.Duration
 	}
 }

@@ -22,6 +22,7 @@ type FlashBladeConfig struct {
 	DataEndpoint string `toml:"data_endpoint"`
 	RoleARN      string `toml:"role_arn"`
 	Account      string `toml:"account"`
+	Duration     int    `toml:"duration"`
 }
 
 // S3Config holds S3 test settings from TOML.
@@ -43,10 +44,9 @@ type TOMLConfig struct {
 	S3         S3Config         `toml:"s3"`
 	TLS        TLSConfig        `toml:"tls"`
 
-	// Behavior (not in TOML, set programmatically)
+	// Behavior (set programmatically, not from TOML)
 	ContinueOnError  bool
 	PreSuppliedToken string
-	Duration         int
 }
 
 // FlagOverrides holds values supplied via CLI flags. An empty string means
@@ -116,8 +116,8 @@ func mergeTOML(dst, src *TOMLConfig) {
 	if src.TLS.CACert != "" {
 		dst.TLS.CACert = src.TLS.CACert
 	}
-	if src.Duration != 0 {
-		dst.Duration = src.Duration
+	if src.FlashBlade.Duration != 0 {
+		dst.FlashBlade.Duration = src.FlashBlade.Duration
 	}
 }
 
@@ -187,7 +187,7 @@ func ApplyOverrides(cfg *TOMLConfig, flags *FlagOverrides) {
 		cfg.TLS.CACert = flags.CACert
 	}
 	if flags.Duration != 0 {
-		cfg.Duration = flags.Duration
+		cfg.FlashBlade.Duration = flags.Duration
 	}
 	if flags.Token != "" {
 		cfg.PreSuppliedToken = flags.Token
@@ -202,7 +202,7 @@ func (tc *TOMLConfig) ToStepsConfig() *steps.Config {
 		scopes = []string{"openid", "profile", "groups"}
 	}
 
-	duration := tc.Duration
+	duration := tc.FlashBlade.Duration
 	if duration == 0 {
 		duration = 3600
 	}
