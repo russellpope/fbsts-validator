@@ -176,6 +176,13 @@ func (k *KeycloakAuthenticator) tryToken(ctx context.Context, tokenEndpoint, dev
 		case "authorization_pending", "slow_down":
 			return nil, true, nil
 		default:
+			desc := ""
+			if descVal, ok := body["error_description"]; ok {
+				_ = json.Unmarshal(descVal, &desc)
+			}
+			if desc != "" {
+				return nil, false, fmt.Errorf("keycloak poll token: %s — %s", errStr, desc)
+			}
 			return nil, false, fmt.Errorf("keycloak poll token: %s", errStr)
 		}
 	}

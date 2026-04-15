@@ -136,10 +136,11 @@ func (a *OktaAuthenticator) StartDeviceAuth(ctx context.Context, endpoints *OIDC
 
 // tokenJSON holds the raw JSON from the token endpoint.
 type tokenJSON struct {
-	IDToken     string `json:"id_token"`
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	Error       string `json:"error"`
+	IDToken          string `json:"id_token"`
+	AccessToken      string `json:"access_token"`
+	TokenType        string `json:"token_type"`
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
 }
 
 // PollForToken polls the token endpoint until the user completes authorization
@@ -221,6 +222,9 @@ func (a *OktaAuthenticator) tryToken(ctx context.Context, tokenEndpoint, deviceC
 
 	// Any other named error is fatal.
 	if tok.Error != "" {
+		if tok.ErrorDescription != "" {
+			return nil, false, fmt.Errorf("token error: %s — %s", tok.Error, tok.ErrorDescription)
+		}
 		return nil, false, fmt.Errorf("token error: %s", tok.Error)
 	}
 

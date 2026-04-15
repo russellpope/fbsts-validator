@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -24,7 +25,6 @@ var configPath string
 var flagScopes []string
 var flagContinueOnError bool
 var flagRenderer string
-var flagDemo bool
 var flagUnmask bool
 var flagIDP string
 var flagEmitToken string
@@ -76,8 +76,7 @@ func main() {
 	validateCmd.Flags().StringVar(&configPath, "config", "", "Path to a .fbsts.toml config file")
 
 	// Renderer flags
-	validateCmd.Flags().StringVar(&flagRenderer, "renderer", "panel", "Renderer style: panel or subway")
-	validateCmd.Flags().BoolVar(&flagDemo, "demo", false, "Demo mode: subway renderer with inter-step pacing")
+	validateCmd.Flags().StringVar(&flagRenderer, "renderer", "subway", "Renderer style: panel or subway")
 
 	initCmd := &cobra.Command{
 		Use:   "init",
@@ -93,7 +92,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(validateCmd, initCmd, versionCmd)
+	rootCmd.AddCommand(validateCmd, initCmd, versionCmd, newDecodeCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -207,20 +206,15 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	// 12. Create renderer based on flags.
 	var rend render.Renderer
-	rendererChoice := flagRenderer
-	if flagDemo {
-		rendererChoice = "subway"
-	}
-
 	stepNames := []string{"DeviceAuth", "TokenDecode", "STSAssume", "S3Validate"}
-	switch rendererChoice {
-	case "subway":
+	switch flagRenderer {
+	case "panel":
+		rend = render.NewPanelRenderer(os.Stdout)
+	default:
 		sr := render.NewSubwayRenderer(stepNames)
 		sr.Start()
 		defer sr.Stop()
 		rend = sr
-	default:
-		rend = render.NewPanelRenderer(os.Stdout)
 	}
 
 	// 13. Show TLS warning if insecure.
@@ -239,30 +233,41 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	// 15. Create FlowContext and run via runner.Run.
 	flowCtx := steps.NewFlowContext(cfg, client)
 	r := runner.New(rend)
-	if flagDemo {
+	if flagRenderer != "panel" {
 		r.DemoPace = 800 * time.Millisecond
 	}
 	if err := r.Run(flowCtx, pipeline, cfg.ContinueOnError); err != nil {
-		writeEmitToken(cfg.EmitTokenPath, flowCtx.IDToken)
+		emitTokens(cfg.EmitTokenPath, flowCtx)
 		return err
 	}
 
-	// 16. Write token to file if --emit-token was set.
-	writeEmitToken(cfg.EmitTokenPath, flowCtx.IDToken)
+	// 16. Write tokens to file if --emit-token was set.
+	emitTokens(cfg.EmitTokenPath, flowCtx)
 
 	return nil
 }
 
-// writeEmitToken writes the raw JWT to a file if path is non-empty and token is non-empty.
-func writeEmitToken(path, token string) {
-	if path == "" || token == "" {
+// emitTokens writes the ID token and access token to files if --emit-token was set.
+// Given path "token.jwt", writes ID token to "token.jwt" and access token to "token-access.jwt".
+func emitTokens(path string, ctx *steps.FlowContext) {
+	if path == "" {
 		return
 	}
-	if err := os.WriteFile(path, []byte(token), 0600); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not write token to %s: %v\n", path, err)
+	writeFile(path, ctx.IDToken, "ID token")
+	ext := filepath.Ext(path)
+	accessPath := strings.TrimSuffix(path, ext) + "-access" + ext
+	writeFile(accessPath, ctx.AccessToken, "access token")
+}
+
+func writeFile(path, content, label string) {
+	if content == "" {
 		return
 	}
-	fmt.Printf("  Token written to %s\n", path)
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not write %s to %s: %v\n", label, path, err)
+		return
+	}
+	fmt.Printf("  %s written to %s\n", strings.ToUpper(label[:1])+label[1:], path)
 }
 
 func runInit(cmd *cobra.Command, args []string) error {

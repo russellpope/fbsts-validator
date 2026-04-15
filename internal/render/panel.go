@@ -95,6 +95,9 @@ func (r *PanelRenderer) RenderStepError(name string, err error) {
 		if stepErr.Hint != "" {
 			sb.WriteString(styleHint.Render("Hint: "+stepErr.Hint) + "\n")
 		}
+		if stepErr.RawResponse != "" {
+			sb.WriteString(styleLabel.Render("Response") + "  " + styleValue.Render(stepErr.RawResponse) + "\n")
+		}
 	} else {
 		sb.WriteString(styleLabel.Render("Error") + "  " + styleValue.Render(err.Error()) + "\n")
 	}
