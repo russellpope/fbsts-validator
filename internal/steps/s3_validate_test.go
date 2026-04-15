@@ -126,10 +126,9 @@ func TestS3ValidatePutForbidden(t *testing.T) {
 	defer server.Close()
 
 	cfg := &Config{
-		DataEndpoint:    server.URL,
-		TestBucket:      "test-bucket",
-		TestKeyPrefix:   "test-",
-		ContinueOnError: false,
+		DataEndpoint:  server.URL,
+		TestBucket:    "test-bucket",
+		TestKeyPrefix: "test-",
 	}
 	ctx := NewFlowContext(cfg, server.Client())
 	ctx.AccessKeyId = "AKIAIOSFODNN7EXAMPLE"
@@ -137,10 +136,30 @@ func TestS3ValidatePutForbidden(t *testing.T) {
 	ctx.SessionToken = "test-session-token"
 
 	step := NewS3ValidateStep()
-	_, err := step.Execute(ctx)
+	result, err := step.Execute(ctx)
 
-	if err == nil {
-		t.Fatal("expected error when PUT returns 403")
+	if err != nil {
+		t.Fatalf("S3 step should not return error, got: %v", err)
+	}
+	if result == nil {
+		t.Fatal("result should not be nil")
+	}
+	if len(result.SubSteps) != 4 {
+		t.Fatalf("expected 4 SubSteps, got %d", len(result.SubSteps))
+	}
+	if result.SubSteps[0].Status != StatusPass {
+		t.Errorf("ListBuckets should pass, got status %v", result.SubSteps[0].Status)
+	}
+	if result.SubSteps[1].Status != StatusFail {
+		t.Errorf("PutObject should fail, got status %v", result.SubSteps[1].Status)
+	}
+	for _, idx := range []int{2, 3} {
+		if result.SubSteps[idx].Status != StatusFail {
+			t.Errorf("SubStep[%d] should be fail (skipped), got %v", idx, result.SubSteps[idx].Status)
+		}
+		if result.SubSteps[idx].Error == "" {
+			t.Errorf("SubStep[%d] should have a skip reason", idx)
+		}
 	}
 }
 

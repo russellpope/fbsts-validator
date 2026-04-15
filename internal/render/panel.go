@@ -119,6 +119,26 @@ func (r *PanelRenderer) RenderSummary(results map[string]*steps.StepResult, orde
 		sb.WriteString(fmt.Sprintf("%s  %s\n", label, dur))
 	}
 
+	// Collect and display failure details from SubSteps.
+	var failures []string
+	for _, key := range order {
+		result, ok := results[key]
+		if !ok {
+			continue
+		}
+		for _, sub := range result.SubSteps {
+			if sub.Status == steps.StatusFail && sub.Error != "" {
+				failures = append(failures, fmt.Sprintf("  %s: %s", sub.Name, sub.Error))
+			}
+		}
+	}
+	if len(failures) > 0 {
+		sb.WriteString("\n" + styleFail.Render("Failures:") + "\n")
+		for _, f := range failures {
+			sb.WriteString(f + "\n")
+		}
+	}
+
 	panel := borderSummary.Render(sb.String())
 	fmt.Fprintln(r.w, panel)
 }

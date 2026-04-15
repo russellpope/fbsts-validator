@@ -52,49 +52,42 @@ func (s *S3ValidateStep) Execute(ctx *FlowContext) (*StepResult, error) {
 	}
 
 	var subSteps []SubStep
-	var putContent []byte
+	putOK := false
 
-	// --- ListBuckets ---
-	listSub, listErr := doListBuckets(client, creds, endpoint)
+	// --- ListBuckets (independent) ---
+	listSub, _ := doListBuckets(client, creds, endpoint)
 	subSteps = append(subSteps, listSub)
-	if listErr != nil {
-		ctx.S3Results = buildS3Results(subSteps, bucket, key)
-		if !ctx.Config.ContinueOnError {
-			return nil, listErr
-		}
-	}
 
 	// --- PutObject ---
 	content := []byte("rp-fbstsvalidator test object " + time.Now().UTC().Format(time.RFC3339))
 	putSub, putErr := doPutObject(client, creds, endpoint, bucket, key, content)
 	subSteps = append(subSteps, putSub)
-	if putErr != nil {
-		ctx.S3Results = buildS3Results(subSteps, bucket, key)
-		if !ctx.Config.ContinueOnError {
-			return nil, putErr
-		}
+	if putErr == nil {
+		putOK = true
+	}
+
+	// --- GetObject (depends on PutObject) ---
+	if putOK {
+		getSub, _ := doGetObject(client, creds, endpoint, bucket, key, content)
+		subSteps = append(subSteps, getSub)
 	} else {
-		putContent = content
+		subSteps = append(subSteps, SubStep{
+			Name:   "GetObject",
+			Status: StatusFail,
+			Error:  "skipped — PutObject failed",
+		})
 	}
 
-	// --- GetObject ---
-	getSub, getErr := doGetObject(client, creds, endpoint, bucket, key, putContent)
-	subSteps = append(subSteps, getSub)
-	if getErr != nil {
-		ctx.S3Results = buildS3Results(subSteps, bucket, key)
-		if !ctx.Config.ContinueOnError {
-			return nil, getErr
-		}
-	}
-
-	// --- DeleteObject ---
-	delSub, delErr := doDeleteObject(client, creds, endpoint, bucket, key)
-	subSteps = append(subSteps, delSub)
-	if delErr != nil {
-		ctx.S3Results = buildS3Results(subSteps, bucket, key)
-		if !ctx.Config.ContinueOnError {
-			return nil, delErr
-		}
+	// --- DeleteObject (depends on PutObject) ---
+	if putOK {
+		delSub, _ := doDeleteObject(client, creds, endpoint, bucket, key)
+		subSteps = append(subSteps, delSub)
+	} else {
+		subSteps = append(subSteps, SubStep{
+			Name:   "DeleteObject",
+			Status: StatusFail,
+			Error:  "skipped — PutObject failed",
+		})
 	}
 
 	ctx.S3Results = buildS3Results(subSteps, bucket, key)
