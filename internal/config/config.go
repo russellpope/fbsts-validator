@@ -16,6 +16,13 @@ type OktaConfig struct {
 	Scopes    []string `toml:"scopes"`
 }
 
+// KeycloakConfig holds Keycloak-related TOML settings.
+type KeycloakConfig struct {
+	IssuerURL string   `toml:"issuer_url"`
+	ClientID  string   `toml:"client_id"`
+	Scopes    []string `toml:"scopes"`
+}
+
 // FlashBladeConfig holds FlashBlade STS/data endpoint TOML settings.
 type FlashBladeConfig struct {
 	STSEndpoint  string `toml:"sts_endpoint"`
@@ -40,6 +47,7 @@ type TLSConfig struct {
 // TOMLConfig mirrors the structure of the .fbsts.toml configuration file.
 type TOMLConfig struct {
 	Okta       OktaConfig       `toml:"okta"`
+	Keycloak   KeycloakConfig   `toml:"keycloak"`
 	FlashBlade FlashBladeConfig `toml:"flashblade"`
 	S3         S3Config         `toml:"s3"`
 	TLS        TLSConfig        `toml:"tls"`
@@ -92,6 +100,15 @@ func mergeTOML(dst, src *TOMLConfig) {
 	if len(src.Okta.Scopes) > 0 {
 		dst.Okta.Scopes = src.Okta.Scopes
 	}
+	if src.Keycloak.IssuerURL != "" {
+		dst.Keycloak.IssuerURL = src.Keycloak.IssuerURL
+	}
+	if src.Keycloak.ClientID != "" {
+		dst.Keycloak.ClientID = src.Keycloak.ClientID
+	}
+	if len(src.Keycloak.Scopes) > 0 {
+		dst.Keycloak.Scopes = src.Keycloak.Scopes
+	}
 	if src.FlashBlade.STSEndpoint != "" {
 		dst.FlashBlade.STSEndpoint = src.FlashBlade.STSEndpoint
 	}
@@ -119,6 +136,38 @@ func mergeTOML(dst, src *TOMLConfig) {
 	if src.FlashBlade.Duration != 0 {
 		dst.FlashBlade.Duration = src.FlashBlade.Duration
 	}
+}
+
+// DetectIDP determines which IDP to use based on the --idp flag value and
+// which config sections are populated. Returns "okta" or "keycloak".
+func DetectIDP(cfg *TOMLConfig, flagIDP string) (string, error) {
+	if flagIDP != "" {
+		switch flagIDP {
+		case "okta":
+			if cfg.Okta.TenantURL == "" && cfg.Okta.ClientID == "" {
+				return "", fmt.Errorf("--idp okta specified but no [okta] section in config")
+			}
+			return "okta", nil
+		case "keycloak":
+			if cfg.Keycloak.IssuerURL == "" && cfg.Keycloak.ClientID == "" {
+				return "", fmt.Errorf("--idp keycloak specified but no [keycloak] section in config")
+			}
+			return "keycloak", nil
+		default:
+			return "", fmt.Errorf("unknown IDP %q (supported: okta, keycloak)", flagIDP)
+		}
+	}
+
+	hasOkta := cfg.Okta.TenantURL != "" || cfg.Okta.ClientID != ""
+	hasKeycloak := cfg.Keycloak.IssuerURL != "" || cfg.Keycloak.ClientID != ""
+
+	if hasOkta && hasKeycloak {
+		return "", fmt.Errorf("multiple IDPs configured ([okta], [keycloak]), use --idp to select")
+	}
+	if hasKeycloak {
+		return "keycloak", nil
+	}
+	return "okta", nil
 }
 
 // LoadFromFile reads a single TOML config file and returns a flat steps.Config.
@@ -202,26 +251,34 @@ func (tc *TOMLConfig) ToStepsConfig() *steps.Config {
 		scopes = []string{"openid", "profile", "groups"}
 	}
 
+	keycloakScopes := tc.Keycloak.Scopes
+	if len(keycloakScopes) == 0 {
+		keycloakScopes = []string{"openid", "profile"}
+	}
+
 	duration := tc.FlashBlade.Duration
 	if duration == 0 {
 		duration = 3600
 	}
 
 	return &steps.Config{
-		OktaTenantURL:    tc.Okta.TenantURL,
-		OktaClientID:     tc.Okta.ClientID,
-		OktaScopes:       scopes,
-		STSEndpoint:      tc.FlashBlade.STSEndpoint,
-		DataEndpoint:     tc.FlashBlade.DataEndpoint,
-		RoleARN:          tc.FlashBlade.RoleARN,
-		Account:          tc.FlashBlade.Account,
-		TestBucket:       tc.S3.TestBucket,
-		TestKeyPrefix:    tc.S3.TestKeyPrefix,
-		Insecure:         tc.TLS.Insecure,
-		CACert:           tc.TLS.CACert,
-		ContinueOnError:  tc.ContinueOnError,
-		PreSuppliedToken: tc.PreSuppliedToken,
-		Duration:         duration,
+		OktaTenantURL:     tc.Okta.TenantURL,
+		OktaClientID:      tc.Okta.ClientID,
+		OktaScopes:        scopes,
+		KeycloakIssuerURL: tc.Keycloak.IssuerURL,
+		KeycloakClientID:  tc.Keycloak.ClientID,
+		KeycloakScopes:    keycloakScopes,
+		STSEndpoint:       tc.FlashBlade.STSEndpoint,
+		DataEndpoint:      tc.FlashBlade.DataEndpoint,
+		RoleARN:           tc.FlashBlade.RoleARN,
+		Account:           tc.FlashBlade.Account,
+		TestBucket:        tc.S3.TestBucket,
+		TestKeyPrefix:     tc.S3.TestKeyPrefix,
+		Insecure:          tc.TLS.Insecure,
+		CACert:            tc.TLS.CACert,
+		ContinueOnError:   tc.ContinueOnError,
+		PreSuppliedToken:  tc.PreSuppliedToken,
+		Duration:          duration,
 	}
 }
 

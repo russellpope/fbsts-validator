@@ -22,6 +22,11 @@ type Config struct {
 	OktaClientID  string
 	OktaScopes    []string
 
+	// Keycloak
+	KeycloakIssuerURL string
+	KeycloakClientID  string
+	KeycloakScopes    []string
+
 	// FlashBlade
 	STSEndpoint  string
 	DataEndpoint string
@@ -41,6 +46,7 @@ type Config struct {
 	PreSuppliedToken string
 	Duration         int
 	Unmask           bool
+	EmitTokenPath    string
 }
 
 // FlowContext carries state between pipeline steps.
@@ -48,7 +54,7 @@ type FlowContext struct {
 	Config     *Config
 	HTTPClient *http.Client
 
-	// Set by OktaDeviceAuth
+	// Set by DeviceAuth
 	IDToken     string
 	AccessToken string
 
