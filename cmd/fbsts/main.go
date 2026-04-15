@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
 
 	"github.com/pure-experimental/rp-fbstsvalidator/internal/config"
+	"github.com/pure-experimental/rp-fbstsvalidator/internal/idp"
 	"github.com/pure-experimental/rp-fbstsvalidator/internal/render"
 	"github.com/pure-experimental/rp-fbstsvalidator/internal/runner"
 	"github.com/pure-experimental/rp-fbstsvalidator/internal/steps"
@@ -23,8 +25,9 @@ var configPath string
 var flagScopes []string
 var flagContinueOnError bool
 var flagRenderer string
-var flagDemo bool
 var flagUnmask bool
+var flagIDP string
+var flagEmitToken string
 
 func main() {
 	rootCmd := &cobra.Command{
@@ -36,7 +39,7 @@ func main() {
 	validateCmd := &cobra.Command{
 		Use:   "validate",
 		Short: "Run the full STS validation flow",
-		Long:  "Authenticates with Okta via device code flow, obtains temporary credentials via AssumeRoleWithWebIdentity, and validates them with S3 CRUD operations.",
+		Long: "Authenticates with an identity provider via device code flow, obtains temporary credentials via AssumeRoleWithWebIdentity, and validates them with S3 CRUD operations.",
 		RunE:  runValidate,
 	}
 
@@ -65,12 +68,15 @@ func main() {
 	validateCmd.Flags().IntVar(&flags.Duration, "duration", 0, "Requested credential duration in seconds")
 	validateCmd.Flags().BoolVar(&flagUnmask, "unmask", false, "Show SecretAccessKey and SessionToken in clear text")
 
+	// IDP flags
+	validateCmd.Flags().StringVar(&flagIDP, "idp", "", "Identity provider: okta or keycloak (auto-detected if omitted)")
+	validateCmd.Flags().StringVar(&flagEmitToken, "emit-token", "", "Write raw JWT to file (no decoration)")
+
 	// Config flag
 	validateCmd.Flags().StringVar(&configPath, "config", "", "Path to a .fbsts.toml config file")
 
 	// Renderer flags
-	validateCmd.Flags().StringVar(&flagRenderer, "renderer", "panel", "Renderer style: panel or subway")
-	validateCmd.Flags().BoolVar(&flagDemo, "demo", false, "Demo mode: subway renderer with inter-step pacing")
+	validateCmd.Flags().StringVar(&flagRenderer, "renderer", "subway", "Renderer style: panel or subway")
 
 	initCmd := &cobra.Command{
 		Use:   "init",
@@ -86,7 +92,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(validateCmd, initCmd, versionCmd)
+	rootCmd.AddCommand(validateCmd, initCmd, versionCmd, newDecodeCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -144,79 +150,124 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		merged.Okta.Scopes = flagScopes
 	}
 
-	// 6. Prompt for missing values (skip Okta prompts if --token provided).
+	// 6. Detect which IDP to use.
+	selectedIDP, err := config.DetectIDP(merged, flagIDP)
+	if err != nil {
+		return fmt.Errorf("IDP selection: %w", err)
+	}
+
+	// 7. Prompt for missing values (skip IDP prompts if --token provided).
 	reader := bufio.NewReader(os.Stdin)
 	if flags.Token != "" {
-		// Pre-fill Okta fields so PromptMissing skips them; the OktaDeviceAuth
-		// step short-circuits when PreSuppliedToken is set so these are unused.
-		if merged.Okta.TenantURL == "" {
-			merged.Okta.TenantURL = "(token-provided)"
-		}
-		if merged.Okta.ClientID == "" {
-			merged.Okta.ClientID = "(token-provided)"
+		if selectedIDP == "okta" {
+			if merged.Okta.TenantURL == "" {
+				merged.Okta.TenantURL = "(token-provided)"
+			}
+			if merged.Okta.ClientID == "" {
+				merged.Okta.ClientID = "(token-provided)"
+			}
+		} else {
+			if merged.Keycloak.IssuerURL == "" {
+				merged.Keycloak.IssuerURL = "(token-provided)"
+			}
+			if merged.Keycloak.ClientID == "" {
+				merged.Keycloak.ClientID = "(token-provided)"
+			}
 		}
 	}
-	if err := config.PromptMissing(merged, reader); err != nil {
+	if err := config.PromptMissing(merged, reader, selectedIDP); err != nil {
 		return fmt.Errorf("prompting for config: %w", err)
 	}
 
-	// 7. Convert to steps config.
+	// 8. Convert to steps config.
 	cfg := merged.ToStepsConfig()
 
-	// 8. Set pre-supplied token and unmask flag.
+	// 9. Set pre-supplied token, unmask flag, and emit-token path.
 	if flags.Token != "" {
 		cfg.PreSuppliedToken = flags.Token
 	}
 	cfg.Unmask = flagUnmask
+	cfg.EmitTokenPath = flagEmitToken
 
-	// 9. Create HTTP client.
+	// 10. Create HTTP client.
 	client, err := config.NewHTTPClient(cfg.Insecure, cfg.CACert)
 	if err != nil {
 		return fmt.Errorf("creating HTTP client: %w", err)
 	}
 
-	// 10. Create renderer based on flags.
-	var rend render.Renderer
-	rendererChoice := flagRenderer
-	if flagDemo {
-		rendererChoice = "subway"
+	// 11. Build the IDP authenticator.
+	var auth idp.IDPAuthenticator
+	switch selectedIDP {
+	case "okta":
+		auth = idp.NewOktaAuthenticator(cfg.OktaTenantURL, cfg.OktaClientID, cfg.OktaScopes, client)
+	case "keycloak":
+		auth = idp.NewKeycloakAuthenticator(cfg.KeycloakIssuerURL, cfg.KeycloakClientID, cfg.KeycloakScopes, client)
 	}
 
-	switch rendererChoice {
-	case "subway":
-		stepNames := []string{"OktaDeviceAuth", "TokenDecode", "STSAssume", "S3Validate"}
+	// 12. Create renderer based on flags.
+	var rend render.Renderer
+	stepNames := []string{"DeviceAuth", "TokenDecode", "STSAssume", "S3Validate"}
+	switch flagRenderer {
+	case "panel":
+		rend = render.NewPanelRenderer(os.Stdout)
+	default:
 		sr := render.NewSubwayRenderer(stepNames)
 		sr.Start()
 		defer sr.Stop()
 		rend = sr
-	default:
-		rend = render.NewPanelRenderer(os.Stdout)
 	}
 
-	// 11. Show TLS warning if insecure.
+	// 13. Show TLS warning if insecure.
 	if cfg.Insecure {
 		rend.RenderWarning("TLS certificate verification is disabled (--insecure). Do not use in production.")
 	}
 
-	// 12. Build pipeline.
+	// 14. Build pipeline.
 	pipeline := []steps.Step{
-		steps.NewOktaDeviceAuthStep(),
+		steps.NewDeviceAuthStep(auth),
 		steps.NewTokenDecodeStep(),
 		steps.NewSTSAssumeStep(),
 		steps.NewS3ValidateStep(),
 	}
 
-	// 13. Create FlowContext and run via runner.Run.
+	// 15. Create FlowContext and run via runner.Run.
 	flowCtx := steps.NewFlowContext(cfg, client)
 	r := runner.New(rend)
-	if flagDemo {
+	if flagRenderer != "panel" {
 		r.DemoPace = 800 * time.Millisecond
 	}
 	if err := r.Run(flowCtx, pipeline, cfg.ContinueOnError); err != nil {
+		emitTokens(cfg.EmitTokenPath, flowCtx)
 		return err
 	}
 
+	// 16. Write tokens to file if --emit-token was set.
+	emitTokens(cfg.EmitTokenPath, flowCtx)
+
 	return nil
+}
+
+// emitTokens writes the ID token and access token to files if --emit-token was set.
+// Given path "token.jwt", writes ID token to "token.jwt" and access token to "token-access.jwt".
+func emitTokens(path string, ctx *steps.FlowContext) {
+	if path == "" {
+		return
+	}
+	writeFile(path, ctx.IDToken, "ID token")
+	ext := filepath.Ext(path)
+	accessPath := strings.TrimSuffix(path, ext) + "-access" + ext
+	writeFile(accessPath, ctx.AccessToken, "access token")
+}
+
+func writeFile(path, content, label string) {
+	if content == "" {
+		return
+	}
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not write %s to %s: %v\n", label, path, err)
+		return
+	}
+	fmt.Printf("  %s written to %s\n", strings.ToUpper(label[:1])+label[1:], path)
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -231,11 +282,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 	const sampleConfig = `# FlashBlade STS Validator Configuration
 # Copy this to ~/.fbsts.toml or ./.fbsts.toml and fill in your values.
 # CLI flags override config file values. See: fbsts validate --help
+# If both [okta] and [keycloak] are configured, use --idp to select.
 
 [okta]
 tenant_url = "https://myorg.okta.com"
 client_id = "0oa1b2c3d4e5f6g7h8i9"
 scopes = ["openid", "profile", "groups"]
+
+# [keycloak]
+# issuer_url = "https://keycloak.example.com/realms/my-realm"
+# client_id = "my-keycloak-client"
+# scopes = ["openid", "profile"]
 
 [flashblade]
 sts_endpoint = "https://fb-sts.example.com"
@@ -259,7 +316,7 @@ ca_cert = ""
 	}
 
 	// 3. Print confirmation.
-	fmt.Printf("Created %s — edit it with your Okta and FlashBlade settings.\n", targetPath)
+	fmt.Printf("Created %s — edit it with your IDP and FlashBlade settings.\n", targetPath)
 	return nil
 }
 
@@ -273,6 +330,15 @@ func mergeTOMLConfig(dst, src *config.TOMLConfig) {
 	}
 	if len(src.Okta.Scopes) > 0 {
 		dst.Okta.Scopes = src.Okta.Scopes
+	}
+	if src.Keycloak.IssuerURL != "" {
+		dst.Keycloak.IssuerURL = src.Keycloak.IssuerURL
+	}
+	if src.Keycloak.ClientID != "" {
+		dst.Keycloak.ClientID = src.Keycloak.ClientID
+	}
+	if len(src.Keycloak.Scopes) > 0 {
+		dst.Keycloak.Scopes = src.Keycloak.Scopes
 	}
 	if src.FlashBlade.STSEndpoint != "" {
 		dst.FlashBlade.STSEndpoint = src.FlashBlade.STSEndpoint

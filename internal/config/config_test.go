@@ -154,3 +154,91 @@ func TestDefaultDuration(t *testing.T) {
 		t.Errorf("default duration should be 3600, got %d", result.Duration)
 	}
 }
+
+func TestLoadKeycloakConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".fbsts.toml")
+	content := `
+[keycloak]
+issuer_url = "https://kc.example.com/realms/test"
+client_id = "kc-client"
+scopes = ["openid", "profile"]
+
+[flashblade]
+sts_endpoint = "https://fb-sts.example.com"
+role_arn = "arn:aws:iam::123:role/test"
+`
+	os.WriteFile(path, []byte(content), 0644)
+	cfg, err := LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("LoadFromFile failed: %v", err)
+	}
+	if cfg.KeycloakIssuerURL != "https://kc.example.com/realms/test" {
+		t.Errorf("KeycloakIssuerURL = %q", cfg.KeycloakIssuerURL)
+	}
+	if cfg.KeycloakClientID != "kc-client" {
+		t.Errorf("KeycloakClientID = %q", cfg.KeycloakClientID)
+	}
+}
+
+func TestDetectIDPOktaOnly(t *testing.T) {
+	cfg := &TOMLConfig{}
+	cfg.Okta.TenantURL = "https://myorg.okta.com"
+	cfg.Okta.ClientID = "client-id"
+	detected, err := DetectIDP(cfg, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if detected != "okta" {
+		t.Errorf("detected = %q, want okta", detected)
+	}
+}
+
+func TestDetectIDPKeycloakOnly(t *testing.T) {
+	cfg := &TOMLConfig{}
+	cfg.Keycloak.IssuerURL = "https://kc.example.com/realms/test"
+	cfg.Keycloak.ClientID = "kc-client"
+	detected, err := DetectIDP(cfg, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if detected != "keycloak" {
+		t.Errorf("detected = %q, want keycloak", detected)
+	}
+}
+
+func TestDetectIDPBothConfiguredNoFlag(t *testing.T) {
+	cfg := &TOMLConfig{}
+	cfg.Okta.TenantURL = "https://myorg.okta.com"
+	cfg.Okta.ClientID = "client-id"
+	cfg.Keycloak.IssuerURL = "https://kc.example.com/realms/test"
+	cfg.Keycloak.ClientID = "kc-client"
+	_, err := DetectIDP(cfg, "")
+	if err == nil {
+		t.Fatal("expected error when both IDPs configured without --idp flag")
+	}
+}
+
+func TestDetectIDPExplicitFlag(t *testing.T) {
+	cfg := &TOMLConfig{}
+	cfg.Okta.TenantURL = "https://myorg.okta.com"
+	cfg.Okta.ClientID = "client-id"
+	cfg.Keycloak.IssuerURL = "https://kc.example.com/realms/test"
+	cfg.Keycloak.ClientID = "kc-client"
+	detected, err := DetectIDP(cfg, "keycloak")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if detected != "keycloak" {
+		t.Errorf("detected = %q, want keycloak", detected)
+	}
+}
+
+func TestDetectIDPFlagMissingSection(t *testing.T) {
+	cfg := &TOMLConfig{}
+	cfg.Okta.TenantURL = "https://myorg.okta.com"
+	_, err := DetectIDP(cfg, "keycloak")
+	if err == nil {
+		t.Fatal("expected error when --idp keycloak but no [keycloak] section")
+	}
+}

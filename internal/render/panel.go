@@ -95,6 +95,9 @@ func (r *PanelRenderer) RenderStepError(name string, err error) {
 		if stepErr.Hint != "" {
 			sb.WriteString(styleHint.Render("Hint: "+stepErr.Hint) + "\n")
 		}
+		if stepErr.RawResponse != "" {
+			sb.WriteString(styleLabel.Render("Response") + "  " + styleValue.Render(stepErr.RawResponse) + "\n")
+		}
 	} else {
 		sb.WriteString(styleLabel.Render("Error") + "  " + styleValue.Render(err.Error()) + "\n")
 	}
@@ -117,6 +120,26 @@ func (r *PanelRenderer) RenderSummary(results map[string]*steps.StepResult, orde
 		label := styleLabel.Render(result.Title)
 		dur := styleValue.Render(result.Duration.String())
 		sb.WriteString(fmt.Sprintf("%s  %s\n", label, dur))
+	}
+
+	// Collect and display failure details from SubSteps.
+	var failures []string
+	for _, key := range order {
+		result, ok := results[key]
+		if !ok {
+			continue
+		}
+		for _, sub := range result.SubSteps {
+			if sub.Status == steps.StatusFail && sub.Error != "" {
+				failures = append(failures, fmt.Sprintf("  %s: %s", sub.Name, sub.Error))
+			}
+		}
+	}
+	if len(failures) > 0 {
+		sb.WriteString("\n" + styleFail.Render("Failures:") + "\n")
+		for _, f := range failures {
+			sb.WriteString(f + "\n")
+		}
 	}
 
 	panel := borderSummary.Render(sb.String())

@@ -13,9 +13,9 @@ import (
 // stsHints maps well-known STS error codes to actionable diagnostic messages.
 var stsHints = map[string]string{
 	"AccessDenied":            "Check that the role's trust policy includes your OIDC provider and the aud/sub claims match",
-	"InvalidIdentityToken":    "Token may be expired or the FlashBlade cannot reach the Okta JWKS endpoint to validate signatures",
+	"InvalidIdentityToken":    "Token may be expired or the FlashBlade cannot reach the IDP's JWKS endpoint to validate signatures",
 	"MalformedPolicyDocument": "The role's trust policy syntax is invalid — check conditions and principal format",
-	"ExpiredTokenException":   "The OIDC token has expired. Re-authenticate with Okta and try again",
+	"ExpiredTokenException":   "The OIDC token has expired. Re-authenticate and try again",
 }
 
 // stsCredentials holds the parsed credential fields from a successful
@@ -73,8 +73,8 @@ func (s *STSAssumeStep) Name() string {
 func (s *STSAssumeStep) Execute(ctx *FlowContext) (*StepResult, error) {
 	if ctx.IDToken == "" {
 		return nil, &StepError{
-			Err:  fmt.Errorf("no ID token present; OktaDeviceAuth must run before STSAssume"),
-			Hint: "Ensure the OktaDeviceAuth step succeeds and sets ctx.IDToken.",
+			Err:  fmt.Errorf("no ID token present; DeviceAuth must run before STSAssume"),
+			Hint: "Ensure the DeviceAuth step succeeds and sets ctx.IDToken.",
 		}
 	}
 

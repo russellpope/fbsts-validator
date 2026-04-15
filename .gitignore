@@ -12,10 +12,14 @@
 docs/
 .superpowers/
 
+# Tokens
+*.jwt
+
 # IDE
 .idea/
 .vscode/
 *.swp
+.claude/
 
 # OS
 .DS_Store
