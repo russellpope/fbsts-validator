@@ -283,22 +283,43 @@ func (tc *TOMLConfig) ToStepsConfig() *steps.Config {
 }
 
 // PromptMissing interactively asks for any required fields that are empty.
-func PromptMissing(cfg *TOMLConfig, reader *bufio.Reader) error {
-	if cfg.Okta.TenantURL == "" {
-		fmt.Print("Okta tenant URL: ")
-		val, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("read okta tenant url: %w", err)
+// selectedIDP must be "okta" or "keycloak"; it controls which IDP fields are prompted.
+func PromptMissing(cfg *TOMLConfig, reader *bufio.Reader, selectedIDP string) error {
+	switch selectedIDP {
+	case "keycloak":
+		if cfg.Keycloak.IssuerURL == "" {
+			fmt.Print("Keycloak issuer URL (e.g. https://keycloak.example.com/realms/my-realm): ")
+			val, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("read keycloak issuer url: %w", err)
+			}
+			cfg.Keycloak.IssuerURL = trimNewline(val)
 		}
-		cfg.Okta.TenantURL = trimNewline(val)
-	}
-	if cfg.Okta.ClientID == "" {
-		fmt.Print("Okta client ID: ")
-		val, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("read okta client id: %w", err)
+		if cfg.Keycloak.ClientID == "" {
+			fmt.Print("Keycloak client ID: ")
+			val, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("read keycloak client id: %w", err)
+			}
+			cfg.Keycloak.ClientID = trimNewline(val)
 		}
-		cfg.Okta.ClientID = trimNewline(val)
+	default: // okta
+		if cfg.Okta.TenantURL == "" {
+			fmt.Print("Okta tenant URL: ")
+			val, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("read okta tenant url: %w", err)
+			}
+			cfg.Okta.TenantURL = trimNewline(val)
+		}
+		if cfg.Okta.ClientID == "" {
+			fmt.Print("Okta client ID: ")
+			val, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("read okta client id: %w", err)
+			}
+			cfg.Okta.ClientID = trimNewline(val)
+		}
 	}
 	if cfg.FlashBlade.STSEndpoint == "" {
 		fmt.Print("FlashBlade STS endpoint: ")
