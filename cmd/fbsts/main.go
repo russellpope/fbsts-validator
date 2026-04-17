@@ -92,7 +92,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(validateCmd, initCmd, versionCmd, newDecodeCmd())
+	rootCmd.AddCommand(validateCmd, initCmd, versionCmd, newDecodeCmd(), newTrustPolicyCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
