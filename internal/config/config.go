@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/pure-experimental/rp-fbstsvalidator/internal/steps"
@@ -30,6 +31,7 @@ type FlashBladeConfig struct {
 	RoleARN      string `toml:"role_arn"`
 	Account      string `toml:"account"`
 	Duration     int    `toml:"duration"`
+	ArnFormat    string `toml:"arn_format"` // "prn" | "aws"; auto-sniffed if empty
 }
 
 // S3Config holds S3 test settings from TOML.
@@ -46,11 +48,12 @@ type TLSConfig struct {
 
 // TOMLConfig mirrors the structure of the .fbsts.toml configuration file.
 type TOMLConfig struct {
-	Okta       OktaConfig       `toml:"okta"`
-	Keycloak   KeycloakConfig   `toml:"keycloak"`
-	FlashBlade FlashBladeConfig `toml:"flashblade"`
-	S3         S3Config         `toml:"s3"`
-	TLS        TLSConfig        `toml:"tls"`
+	Okta          OktaConfig        `toml:"okta"`
+	Keycloak      KeycloakConfig    `toml:"keycloak"`
+	FlashBlade    FlashBladeConfig  `toml:"flashblade"`
+	S3            S3Config          `toml:"s3"`
+	TLS           TLSConfig         `toml:"tls"`
+	OIDCProviders map[string]string `toml:"oidc_providers"`
 
 	// Behavior (set programmatically, not from TOML)
 	ContinueOnError  bool
@@ -345,4 +348,16 @@ func trimNewline(s string) string {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+// SniffArnFormat returns "prn" or "aws" based on the prefix of the given ARN/PRN.
+// Defaults to "aws" if the prefix is unrecognized or the input is empty.
+func SniffArnFormat(arn string) string {
+	if strings.HasPrefix(arn, "prn::") {
+		return "prn"
+	}
+	if strings.HasPrefix(arn, "arn:aws:") {
+		return "aws"
+	}
+	return "aws"
 }

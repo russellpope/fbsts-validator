@@ -242,3 +242,52 @@ func TestDetectIDPFlagMissingSection(t *testing.T) {
 		t.Fatal("expected error when --idp keycloak but no [keycloak] section")
 	}
 }
+
+func TestLoadFromTOML_OIDCProviders(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".fbsts.toml")
+	content := `
+[okta]
+tenant_url = "https://x.okta.com"
+client_id = "abc"
+
+[flashblade]
+sts_endpoint = "https://fb"
+data_endpoint = "https://fb-data"
+role_arn = "prn::iam:array-id/local:obj-account-id/39:role/admin"
+arn_format = "prn"
+
+[oidc_providers]
+"https://x.okta.com" = "okta-for-object"
+"https://kc.example/realms/r" = "keycloak-r"
+`
+	os.WriteFile(path, []byte(content), 0644)
+
+	tc, err := loadTOML(path)
+	if err != nil {
+		t.Fatalf("loadTOML: %v", err)
+	}
+	if tc.FlashBlade.ArnFormat != "prn" {
+		t.Errorf("ArnFormat = %q, want prn", tc.FlashBlade.ArnFormat)
+	}
+	if tc.OIDCProviders["https://x.okta.com"] != "okta-for-object" {
+		t.Errorf("OIDCProviders[okta] = %q", tc.OIDCProviders["https://x.okta.com"])
+	}
+	if tc.OIDCProviders["https://kc.example/realms/r"] != "keycloak-r" {
+		t.Errorf("OIDCProviders[keycloak] = %q", tc.OIDCProviders["https://kc.example/realms/r"])
+	}
+}
+
+func TestSniffArnFormat(t *testing.T) {
+	tests := map[string]string{
+		"prn::iam:array-id/local:obj-account-id/39:role/admin": "prn",
+		"arn:aws:iam::123:role/test":                           "aws",
+		"":                                                     "aws", // default
+		"unknown-format":                                       "aws", // default fallback
+	}
+	for in, want := range tests {
+		if got := SniffArnFormat(in); got != want {
+			t.Errorf("SniffArnFormat(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

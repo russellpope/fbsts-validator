@@ -309,6 +309,13 @@ test_key_prefix = "fbsts-validate/"
 [tls]
 insecure = false
 ca_cert = ""
+
+# OIDC provider mapping (used by ` + "`" + `fbsts trust-policy` + "`" + ` to resolve the principal
+# from the JWT's iss claim). Keys are issuer URLs; values are the OIDC provider
+# names registered on the FlashBlade.
+# [oidc_providers]
+# "https://myorg.okta.com" = "okta-for-object"
+# "https://keycloak.example.com/realms/my-realm" = "keycloak-realm"
 `
 
 	if err := os.WriteFile(targetPath, []byte(sampleConfig), 0600); err != nil {
@@ -366,5 +373,16 @@ func mergeTOMLConfig(dst, src *config.TOMLConfig) {
 	}
 	if src.FlashBlade.Duration != 0 {
 		dst.FlashBlade.Duration = src.FlashBlade.Duration
+	}
+	if src.FlashBlade.ArnFormat != "" {
+		dst.FlashBlade.ArnFormat = src.FlashBlade.ArnFormat
+	}
+	if len(src.OIDCProviders) > 0 {
+		if dst.OIDCProviders == nil {
+			dst.OIDCProviders = make(map[string]string)
+		}
+		for k, v := range src.OIDCProviders {
+			dst.OIDCProviders[k] = v
+		}
 	}
 }
