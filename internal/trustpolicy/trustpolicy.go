@@ -46,8 +46,8 @@ func FromJWT(in Inputs) (*Rule, error) {
 	if err != nil {
 		return nil, err
 	}
-	conds := DefaultConditionsWithIncludes(dec.Claims, in.IncludeClaims)
-	conds = append(conds, in.Conditions...)
+	defaults := DefaultConditionsWithIncludes(dec.Claims, in.IncludeClaims)
+	conds := mergeConditions(defaults, in.Conditions)
 	return assemble(dec.Claims, conds, in)
 }
 
@@ -60,12 +60,32 @@ func Interactive(in Inputs) (*Rule, error) {
 		return nil, err
 	}
 	classified := ClassifyClaims(dec.Claims)
-	conds, err := WalkClaims(classified, in.Reader, in.Writer)
+	walked, err := WalkClaims(classified, in.Reader, in.Writer)
 	if err != nil {
 		return nil, err
 	}
-	conds = append(conds, in.Conditions...)
+	conds := mergeConditions(walked, in.Conditions)
 	return assemble(dec.Claims, conds, in)
+}
+
+// mergeConditions combines default-derived conditions with user-supplied ones.
+// User conditions REPLACE any default-derived condition that targets the same Key
+// (regardless of operator). This avoids emitting two condition entries for the
+// same key — under AWS IAM AND-across-same-key semantics that would produce
+// surprising over-restriction.
+func mergeConditions(defaults, overrides []Condition) []Condition {
+	overriddenKeys := make(map[string]bool, len(overrides))
+	for _, c := range overrides {
+		overriddenKeys[c.Key] = true
+	}
+	out := make([]Condition, 0, len(defaults)+len(overrides))
+	for _, c := range defaults {
+		if !overriddenKeys[c.Key] {
+			out = append(out, c)
+		}
+	}
+	out = append(out, overrides...)
+	return out
 }
 
 // Build assembles a Rule from --condition flags only — no JWT.

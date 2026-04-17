@@ -120,3 +120,49 @@ func TestFromJWT_ExtraConditions(t *testing.T) {
 		t.Errorf("got %d conditions, want 3: %+v", len(rule.Conditions), rule.Conditions)
 	}
 }
+
+func TestFromJWT_FlagOverridesDefault(t *testing.T) {
+	// JWT carries aud=purestorage which would default to StringEquals.
+	// User passes --condition "jwt:aud=like:pure*" — the LIKE should win,
+	// and the EQUAL default should NOT also be emitted.
+	tok := makeJWT(t,
+		map[string]interface{}{"alg": "RS256"},
+		map[string]interface{}{"sub": "user1", "aud": "purestorage"},
+	)
+	cond, _ := ParseCondition("jwt:aud=like:pure*")
+	in := Inputs{
+		Token:      tok,
+		Conditions: []Condition{*cond},
+		Resolver:   &PrincipalResolver{FlagName: "x", ARNFormat: "aws"},
+		Now:        func() time.Time { return time.Unix(1713300000, 0) },
+	}
+	rule, err := FromJWT(in)
+	if err != nil {
+		t.Fatalf("FromJWT: %v", err)
+	}
+	// Expect 2 conditions: sub (default StringEquals) and aud (user-supplied StringLike).
+	// The default StringEquals on jwt:aud must NOT appear.
+	if len(rule.Conditions) != 2 {
+		t.Fatalf("got %d conditions, want 2: %+v", len(rule.Conditions), rule.Conditions)
+	}
+	for _, c := range rule.Conditions {
+		if c.Key == "jwt:aud" {
+			if c.Operator != "StringLike" {
+				t.Errorf("jwt:aud operator = %q, want StringLike (user override)", c.Operator)
+			}
+			if len(c.Values) != 1 || c.Values[0] != "pure*" {
+				t.Errorf("jwt:aud values = %+v, want [pure*]", c.Values)
+			}
+		}
+	}
+	// Sanity: assert there is exactly one jwt:aud condition.
+	audCount := 0
+	for _, c := range rule.Conditions {
+		if c.Key == "jwt:aud" {
+			audCount++
+		}
+	}
+	if audCount != 1 {
+		t.Errorf("jwt:aud appears %d times, want 1", audCount)
+	}
+}
