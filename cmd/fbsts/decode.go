@@ -1,15 +1,14 @@
 package main
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+
+	"github.com/pure-experimental/rp-fbstsvalidator/internal/trustpolicy"
 )
 
 var (
@@ -32,42 +31,16 @@ func newDecodeCmd() *cobra.Command {
 }
 
 func runDecode(cmd *cobra.Command, args []string) error {
-	raw, err := os.ReadFile(args[0])
+	decoded, err := trustpolicy.DecodeJWTFile(args[0])
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", args[0], err)
-	}
-
-	token := strings.TrimSpace(string(raw))
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid JWT: expected 3 dot-separated parts, got %d", len(parts))
-	}
-
-	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return fmt.Errorf("decoding JWT header: %w", err)
-	}
-
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return fmt.Errorf("decoding JWT payload: %w", err)
-	}
-
-	var header map[string]interface{}
-	if err := json.Unmarshal(headerBytes, &header); err != nil {
-		return fmt.Errorf("parsing JWT header JSON: %w", err)
-	}
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		return fmt.Errorf("parsing JWT payload JSON: %w", err)
+		return err
 	}
 
 	fmt.Println(styleHeader.Render("Header"))
-	fmt.Println(renderJSON(header, 0))
+	fmt.Println(renderJSON(decoded.Header, 0))
 	fmt.Println()
 	fmt.Println(styleHeader.Render("Payload"))
-	fmt.Println(renderJSON(payload, 0))
+	fmt.Println(renderJSON(decoded.Claims, 0))
 
 	return nil
 }
