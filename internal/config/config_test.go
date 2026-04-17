@@ -278,6 +278,49 @@ arn_format = "prn"
 	}
 }
 
+func TestResolveConfig_OIDCProvidersMergedAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home.toml")
+	local := filepath.Join(dir, "local.toml")
+
+	os.WriteFile(home, []byte(`
+[flashblade]
+sts_endpoint = "https://fb"
+data_endpoint = "https://fb-data"
+role_arn = "prn::iam:x:role/r"
+arn_format = "prn"
+
+[oidc_providers]
+"https://a" = "a-provider"
+`), 0644)
+
+	os.WriteFile(local, []byte(`
+[oidc_providers]
+"https://b" = "b-provider"
+`), 0644)
+
+	// Load each into a TOMLConfig manually (since ResolveConfig returns *steps.Config
+	// which drops the new fields). Exercise mergeTOML directly.
+	merged := &TOMLConfig{}
+	for _, p := range []string{home, local} {
+		tc, err := loadTOML(p)
+		if err != nil {
+			t.Fatalf("loadTOML(%q): %v", p, err)
+		}
+		mergeTOML(merged, tc)
+	}
+
+	if merged.FlashBlade.ArnFormat != "prn" {
+		t.Errorf("ArnFormat = %q, want prn", merged.FlashBlade.ArnFormat)
+	}
+	if merged.OIDCProviders["https://a"] != "a-provider" {
+		t.Errorf("OIDCProviders[a] = %q", merged.OIDCProviders["https://a"])
+	}
+	if merged.OIDCProviders["https://b"] != "b-provider" {
+		t.Errorf("OIDCProviders[b] = %q", merged.OIDCProviders["https://b"])
+	}
+}
+
 func TestSniffArnFormat(t *testing.T) {
 	tests := map[string]string{
 		"prn::iam:array-id/local:obj-account-id/39:role/admin": "prn",

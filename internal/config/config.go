@@ -139,6 +139,17 @@ func mergeTOML(dst, src *TOMLConfig) {
 	if src.FlashBlade.Duration != 0 {
 		dst.FlashBlade.Duration = src.FlashBlade.Duration
 	}
+	if src.FlashBlade.ArnFormat != "" {
+		dst.FlashBlade.ArnFormat = src.FlashBlade.ArnFormat
+	}
+	if len(src.OIDCProviders) > 0 {
+		if dst.OIDCProviders == nil {
+			dst.OIDCProviders = make(map[string]string)
+		}
+		for k, v := range src.OIDCProviders {
+			dst.OIDCProviders[k] = v
+		}
+	}
 }
 
 // DetectIDP determines which IDP to use based on the --idp flag value and
