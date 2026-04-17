@@ -300,14 +300,14 @@ arn_format = "prn"
 `), 0644)
 
 	// Load each into a TOMLConfig manually (since ResolveConfig returns *steps.Config
-	// which drops the new fields). Exercise mergeTOML directly.
+	// which drops the new fields). Exercise MergeTOML directly.
 	merged := &TOMLConfig{}
 	for _, p := range []string{home, local} {
 		tc, err := loadTOML(p)
 		if err != nil {
 			t.Fatalf("loadTOML(%q): %v", p, err)
 		}
-		mergeTOML(merged, tc)
+		MergeTOML(merged, tc)
 	}
 
 	if merged.FlashBlade.ArnFormat != "prn" {

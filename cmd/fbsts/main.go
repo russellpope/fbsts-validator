@@ -133,7 +133,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		if decodeErr != nil {
 			return fmt.Errorf("parse config %q: %w", path, decodeErr)
 		}
-		mergeTOMLConfig(merged, &tc)
+		config.MergeTOML(merged, &tc)
 	}
 
 	// 3. Check if --insecure was explicitly set.
@@ -325,64 +325,4 @@ ca_cert = ""
 	// 3. Print confirmation.
 	fmt.Printf("Created %s — edit it with your IDP and FlashBlade settings.\n", targetPath)
 	return nil
-}
-
-// mergeTOMLConfig copies non-zero values from src into dst.
-func mergeTOMLConfig(dst, src *config.TOMLConfig) {
-	if src.Okta.TenantURL != "" {
-		dst.Okta.TenantURL = src.Okta.TenantURL
-	}
-	if src.Okta.ClientID != "" {
-		dst.Okta.ClientID = src.Okta.ClientID
-	}
-	if len(src.Okta.Scopes) > 0 {
-		dst.Okta.Scopes = src.Okta.Scopes
-	}
-	if src.Keycloak.IssuerURL != "" {
-		dst.Keycloak.IssuerURL = src.Keycloak.IssuerURL
-	}
-	if src.Keycloak.ClientID != "" {
-		dst.Keycloak.ClientID = src.Keycloak.ClientID
-	}
-	if len(src.Keycloak.Scopes) > 0 {
-		dst.Keycloak.Scopes = src.Keycloak.Scopes
-	}
-	if src.FlashBlade.STSEndpoint != "" {
-		dst.FlashBlade.STSEndpoint = src.FlashBlade.STSEndpoint
-	}
-	if src.FlashBlade.DataEndpoint != "" {
-		dst.FlashBlade.DataEndpoint = src.FlashBlade.DataEndpoint
-	}
-	if src.FlashBlade.RoleARN != "" {
-		dst.FlashBlade.RoleARN = src.FlashBlade.RoleARN
-	}
-	if src.FlashBlade.Account != "" {
-		dst.FlashBlade.Account = src.FlashBlade.Account
-	}
-	if src.S3.TestBucket != "" {
-		dst.S3.TestBucket = src.S3.TestBucket
-	}
-	if src.S3.TestKeyPrefix != "" {
-		dst.S3.TestKeyPrefix = src.S3.TestKeyPrefix
-	}
-	if src.TLS.Insecure {
-		dst.TLS.Insecure = src.TLS.Insecure
-	}
-	if src.TLS.CACert != "" {
-		dst.TLS.CACert = src.TLS.CACert
-	}
-	if src.FlashBlade.Duration != 0 {
-		dst.FlashBlade.Duration = src.FlashBlade.Duration
-	}
-	if src.FlashBlade.ArnFormat != "" {
-		dst.FlashBlade.ArnFormat = src.FlashBlade.ArnFormat
-	}
-	if len(src.OIDCProviders) > 0 {
-		if dst.OIDCProviders == nil {
-			dst.OIDCProviders = make(map[string]string)
-		}
-		for k, v := range src.OIDCProviders {
-			dst.OIDCProviders[k] = v
-		}
-	}
 }

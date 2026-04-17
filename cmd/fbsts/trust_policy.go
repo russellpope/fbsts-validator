@@ -188,7 +188,7 @@ func loadMergedConfig(explicit string) (*config.TOMLConfig, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse config %q: %w", p, err)
 		}
-		mergeTOMLConfig(merged, &tc)
+		config.MergeTOML(merged, &tc)
 	}
 	return merged, nil
 }

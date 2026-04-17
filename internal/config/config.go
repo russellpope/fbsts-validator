@@ -92,8 +92,8 @@ func loadTOML(path string) (*TOMLConfig, error) {
 	return &cfg, nil
 }
 
-// mergeTOML merges src into dst, overwriting only non-zero values from src.
-func mergeTOML(dst, src *TOMLConfig) {
+// MergeTOML merges src into dst, overwriting only non-zero values from src.
+func MergeTOML(dst, src *TOMLConfig) {
 	if src.Okta.TenantURL != "" {
 		dst.Okta.TenantURL = src.Okta.TenantURL
 	}
@@ -207,7 +207,7 @@ func ResolveConfig(homePath, localPath, explicitPath string) (*steps.Config, err
 		if err != nil {
 			return nil, err
 		}
-		mergeTOML(merged, tc)
+		MergeTOML(merged, tc)
 	}
 
 	return merged.ToStepsConfig(), nil
