@@ -10,6 +10,7 @@ Every piece of data exchanged during the flow is displayed in rich terminal outp
 - **Multi-IDP support** — Okta and Keycloak, with auto-detection or explicit `--idp` selection
 - **Device code auth** — CLI-friendly authentication with automatic browser launch
 - **JWT decode** — `fbsts decode` command to inspect tokens from files with syntax highlighting
+- **Trust policy generation** — `fbsts trust-policy` produces FlashBlade trust-policy rules from JWTs (or pure flags) as JSON, ready to feed into a REST/CLI wrapper
 - **Token export** — `--emit-token` writes raw JWT to file for trust policy authoring
 - **Rich visual output** — Subway-map TUI (default) or styled terminal panels
 - **Secret masking** — Secrets masked by default, `--unmask` to reveal when debugging
@@ -103,6 +104,36 @@ fbsts validate --emit-token ./token.jwt --insecure
 fbsts decode ./token.jwt
 ```
 
+### Generating Trust Policy Rules
+
+Generate a FlashBlade trust-policy rule from a JWT (default output is the rule-add body shape; use `--format iam` for an AWS IAM policy document):
+
+```bash
+# Targeted: derive conditions from the JWT's claims
+fbsts trust-policy ./token.jwt --principal okta-for-object | jq .
+
+# Interactive: walk each claim with prompts
+fbsts trust-policy ./token.jwt --interactive --principal okta-for-object
+
+# Flag-driven (no JWT)
+fbsts trust-policy --condition "jwt:aud=eq:purestorage" --principal okta-for-object
+
+# AWS IAM document format
+fbsts trust-policy ./token.jwt --principal okta-for-object --format iam
+```
+
+The principal can be configured per-issuer in `.fbsts.toml`:
+
+```toml
+[oidc_providers]
+"https://myorg.okta.com" = "okta-for-object"
+"https://keycloak.example.com/realms/my-realm" = "keycloak-realm"
+```
+
+When configured, `--principal` is optional — the tool resolves it from the JWT's `iss` claim.
+
+Condition DSL syntax: `--condition "<key>=<op>:<value>[,<value>...]"`. Operator shortcuts: `eq`, `neq`, `like`, `nlike`, `num-eq`, `num-neq`, `lt`, `lte`, `gt`, `gte`, `ip`, `nip`. Prefix `any-`/`all-` for multi-value qualifiers (`ForAnyValue:`/`ForAllValues:`). Suffix `?` for `IfExists` variants.
+
 ## What It Does
 
 The tool executes four steps in sequence:
@@ -178,10 +209,11 @@ Values are resolved in this priority (highest first):
 ### CLI Reference
 
 ```
-fbsts validate [flags]    Run the full STS validation flow
-fbsts decode <file>       Decode and display a JWT from a file
-fbsts init                Generate a sample .fbsts.toml
-fbsts version             Print version information
+fbsts validate [flags]      Run the full STS validation flow
+fbsts decode <file>         Decode and display a JWT from a file
+fbsts trust-policy [<file>] Generate a FlashBlade trust policy rule as JSON
+fbsts init                  Generate a sample .fbsts.toml
+fbsts version               Print version information
 ```
 
 #### Flags
