@@ -27,6 +27,11 @@ type Config struct {
 	KeycloakClientID  string
 	KeycloakScopes    []string
 
+	// EntraID
+	EntraIDIssuerURL string
+	EntraIDClientID  string
+	EntraIDScopes    []string
+
 	// FlashBlade
 	STSEndpoint  string
 	DataEndpoint string
