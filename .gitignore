@@ -8,8 +8,10 @@
 .fbsts.toml
 *.secret
 
-# Design docs and brainstorm artifacts
-docs/
+# Design docs and brainstorm artifacts — ignore everything under docs/ except
+# the user-facing IDP setup guides.
+docs/*
+!docs/idp/
 .superpowers/
 
 # Tokens

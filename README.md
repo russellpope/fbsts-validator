@@ -53,6 +53,8 @@ make build-all        # build for all platforms (output in build/)
 
 ## Quick Start
 
+> **Detailed setup per IDP:** step-by-step guides for each tested identity provider live under [`docs/idp/`](docs/idp/README.md) — [Okta](docs/idp/okta.md), [Keycloak](docs/idp/keycloak.md), [Microsoft Entra ID](docs/idp/entraid.md). Each covers portal configuration, caveats, and error-code troubleshooting. Start there if you're configuring an IDP for the first time.
+
 ```bash
 # 1. Generate a config file
 fbsts init
@@ -79,6 +81,8 @@ fbsts validate \
 
 ### Using Keycloak
 
+Full setup guide: [`docs/idp/keycloak.md`](docs/idp/keycloak.md).
+
 ```bash
 fbsts validate --idp keycloak --insecure
 ```
@@ -94,6 +98,8 @@ scopes = ["openid", "profile"]
 
 ### Using Microsoft Entra ID
 
+Full setup guide: [`docs/idp/entraid.md`](docs/idp/entraid.md) (includes troubleshooting for common AADSTS error codes).
+
 ```bash
 fbsts validate --idp entraid --insecure
 ```
@@ -104,7 +110,8 @@ With a config file:
 [entraid]
 issuer_url = "https://login.microsoftonline.com/<tenant-id>/v2.0"
 client_id = "<application-client-id>"
-scopes = ["openid", "profile"]
+# See docs/idp/entraid.md — use the raw-GUID form, not api://<client-id>/.default
+scopes = ["openid", "profile", "<application-client-id>/.default"]
 ```
 
 ### Decoding Tokens
@@ -336,49 +343,38 @@ fbsts validate --continue-on-error
 
 ## Identity Provider Setup
 
-### Okta
+Full step-by-step guides — covering IDP-portal configuration, common caveats, and per-error-code troubleshooting — live in [`docs/idp/`](docs/idp/README.md):
 
-1. **An OIDC application** configured with the **Device Authorization** grant type
-2. **A `groups` scope** on the authorization server (Security > API > Authorization Servers > Scopes > Add Scope)
-3. **A `groups` claim** on the authorization server (Claims > Add Claim with value type "Groups", filter "Matches regex `.*`", included in ID Token)
-4. **User and group assignments** on the application
+- **[Okta](docs/idp/okta.md)** — Native app type, device auth grant, groups scope/claim setup, default vs. org authorization server
+- **[Keycloak](docs/idp/keycloak.md)** — public client setup, Device Authorization Grant toggle, Group Membership mapper, HTTPS requirement, Keycloak 25+ organization feature
+- **[Microsoft Entra ID](docs/idp/entraid.md)** — app registration, public client flows, `<client-id>/.default` scope form, token configuration for readable group claims, the AADSTS650053 / AADSTS90009 / AADSTS7000218 round-trip
 
-The tool requests `openid`, `profile`, and `groups` scopes by default. Customize with `--scopes` or the config file.
+### Quick reference
 
-### Keycloak
+| IDP | Issuer URL shape | Default scopes | Public-client toggle |
+|-----|------------------|----------------|----------------------|
+| Okta | `https://<tenant>.okta.com/oauth2/default` | `["openid", "profile", "groups"]` | Grant type "Device Authorization" on the app |
+| Keycloak | `https://<host>/realms/<realm>` | `["openid", "profile"]` | "Client authentication: Off" + "OAuth 2.0 Device Authorization Grant: On" |
+| Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | `["openid", "profile", "<client-id>/.default"]` | "Allow public client flows: Yes" |
 
-1. **A public client** with **OAuth 2.0 Device Authorization Grant** enabled (client settings > Capability config)
-2. **A Group Membership mapper** on the client's dedicated scope (Client scopes > `<client>-dedicated` > Add mapper > Group Membership, with "Full group path" OFF and "Add to ID token" ON)
-3. **Users assigned to groups** that match your trust policy conditions
-4. **HTTPS enabled** — FlashBlade requires an HTTPS issuer URL for JWKS endpoint access. Use `--https-port` with a certificate when running in dev mode
-5. If using Keycloak 25+, start with `--features-disabled=organization` to avoid protocol mapper issues with the device code flow
+If multiple IDP sections are populated in your config, select with `--idp okta|keycloak|entraid`.
 
-The `issuer_url` in the config must include the realm path (e.g., `https://keycloak.example.com/realms/my-realm`).
+### Trust-Policy default claims
 
-### Microsoft Entra ID
+`fbsts trust-policy` auto-includes these claims in the generated policy when present in the JWT:
 
-1. **An app registration** with the **Mobile and desktop applications** platform enabled (redirect URI `https://login.microsoftonline.com/common/oauth2/nativeclient`)
-2. **"Allow public client flows"** enabled under Authentication → Advanced settings — the device code flow requires this
-3. **API permissions** — add the `openid` and `profile` delegated permissions from Microsoft Graph, plus any application-specific scopes
-4. Request a **`<client-id>/.default` scope** (using your app's raw client ID, e.g. `407c9831-d155-40e9-8def-06d5606b4a5e/.default`). This is what pins the JWT's audience to your application instead of Microsoft Graph — without it the trust policy will reject the token. The `api://<app-id>/.default` form works only when a separate API resource is configured; when the client and resource are the same app (the default fbsts setup), Entra returns `AADSTS90009` and requires the raw-GUID form.
-5. **Users or groups** assigned to the application (Enterprise applications → [app] → Users and groups), if assignment is required
+| Claim | Operator | Emitted by |
+|-------|----------|------------|
+| `aud` | `StringEquals` | all |
+| `sub` | `StringEquals` | all |
+| `azp` | `StringEquals` | all |
+| `groups` | `ForAnyValue:StringEquals` | all (when configured) |
+| `tid` | `StringEquals` | Entra ID (tenant identifier) |
+| `oid` | `StringEquals` | Entra ID (stable user object ID) |
+| `upn` | `StringEquals` | Entra ID (user principal name) |
+| `roles` | `ForAnyValue:StringEquals` | Entra ID (app role assignments) |
 
-The `issuer_url` must include the tenant ID (e.g., `https://login.microsoftonline.com/<tenant-id>/v2.0`). Use the tenant-specific URL (not `common` or `organizations`) so the JWT's `iss` claim matches exactly.
-
-If auto-detection reports multiple IDPs configured, select with `--idp entraid`.
-
-#### Trust-Policy Claims
-
-`fbsts trust-policy` recognizes the following Entra ID-specific claims by default:
-
-| Claim | Operator | Notes |
-|-------|----------|-------|
-| `tid` | `StringEquals` | Entra tenant ID |
-| `oid` | `StringEquals` | Stable user object ID |
-| `upn` | `StringEquals` | User principal name |
-| `roles` | `ForAnyValue:StringEquals` | App role assignments |
-
-Entra group values may be object GUIDs, cloud display names, or `sam_account_name` depending on the Entra app manifest's `optionalClaims.groups.additionalProperties` setting. The tool emits whichever value the JWT carries.
+Claims not in this list are skipped; add them with `--condition` if your trust policy needs them. Entra group values depend on tenant configuration — see the [Entra ID guide](docs/idp/entraid.md) for the `sAMAccountName` / `Cloud-only display names` options.
 
 ## FlashBlade Setup
 
