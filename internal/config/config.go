@@ -24,6 +24,13 @@ type KeycloakConfig struct {
 	Scopes    []string `toml:"scopes"`
 }
 
+// EntraIDConfig holds Microsoft Entra ID TOML settings.
+type EntraIDConfig struct {
+	IssuerURL string   `toml:"issuer_url"`
+	ClientID  string   `toml:"client_id"`
+	Scopes    []string `toml:"scopes"`
+}
+
 // FlashBladeConfig holds FlashBlade STS/data endpoint TOML settings.
 type FlashBladeConfig struct {
 	STSEndpoint  string `toml:"sts_endpoint"`
@@ -50,6 +57,7 @@ type TLSConfig struct {
 type TOMLConfig struct {
 	Okta          OktaConfig        `toml:"okta"`
 	Keycloak      KeycloakConfig    `toml:"keycloak"`
+	EntraID       EntraIDConfig     `toml:"entraid"`
 	FlashBlade    FlashBladeConfig  `toml:"flashblade"`
 	S3            S3Config          `toml:"s3"`
 	TLS           TLSConfig         `toml:"tls"`
@@ -111,6 +119,15 @@ func MergeTOML(dst, src *TOMLConfig) {
 	}
 	if len(src.Keycloak.Scopes) > 0 {
 		dst.Keycloak.Scopes = src.Keycloak.Scopes
+	}
+	if src.EntraID.IssuerURL != "" {
+		dst.EntraID.IssuerURL = src.EntraID.IssuerURL
+	}
+	if src.EntraID.ClientID != "" {
+		dst.EntraID.ClientID = src.EntraID.ClientID
+	}
+	if len(src.EntraID.Scopes) > 0 {
+		dst.EntraID.Scopes = src.EntraID.Scopes
 	}
 	if src.FlashBlade.STSEndpoint != "" {
 		dst.FlashBlade.STSEndpoint = src.FlashBlade.STSEndpoint

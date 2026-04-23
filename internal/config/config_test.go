@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func TestLoadFromTOML(t *testing.T) {
@@ -332,5 +334,46 @@ func TestSniffArnFormat(t *testing.T) {
 		if got := SniffArnFormat(in); got != want {
 			t.Errorf("SniffArnFormat(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestEntraIDConfigParsesAndMerges(t *testing.T) {
+	tomlStr := `
+[entraid]
+issuer_url = "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0"
+client_id = "app-client-id"
+scopes = ["openid", "profile", "api://app/.default"]
+`
+	var cfg TOMLConfig
+	if _, err := toml.Decode(tomlStr, &cfg); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if cfg.EntraID.IssuerURL == "" {
+		t.Error("expected EntraID.IssuerURL to parse, got empty")
+	}
+	if cfg.EntraID.ClientID != "app-client-id" {
+		t.Errorf("expected client_id %q, got %q", "app-client-id", cfg.EntraID.ClientID)
+	}
+	if len(cfg.EntraID.Scopes) != 3 {
+		t.Errorf("expected 3 scopes, got %d", len(cfg.EntraID.Scopes))
+	}
+}
+
+func TestMergeTOMLEntraID(t *testing.T) {
+	dst := &TOMLConfig{}
+	src := &TOMLConfig{EntraID: EntraIDConfig{
+		IssuerURL: "https://login.microsoftonline.com/tenant/v2.0",
+		ClientID:  "cid",
+		Scopes:    []string{"openid"},
+	}}
+	MergeTOML(dst, src)
+	if dst.EntraID.IssuerURL != src.EntraID.IssuerURL {
+		t.Errorf("merge did not copy IssuerURL")
+	}
+	if dst.EntraID.ClientID != "cid" {
+		t.Errorf("merge did not copy ClientID")
+	}
+	if len(dst.EntraID.Scopes) != 1 {
+		t.Errorf("merge did not copy Scopes")
 	}
 }
