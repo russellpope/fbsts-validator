@@ -69,7 +69,7 @@ func main() {
 	validateCmd.Flags().BoolVar(&flagUnmask, "unmask", false, "Show SecretAccessKey and SessionToken in clear text")
 
 	// IDP flags
-	validateCmd.Flags().StringVar(&flagIDP, "idp", "", "Identity provider: okta or keycloak (auto-detected if omitted)")
+	validateCmd.Flags().StringVar(&flagIDP, "idp", "", "identity provider to use (okta, keycloak, entraid); auto-detected from config if omitted")
 	validateCmd.Flags().StringVar(&flagEmitToken, "emit-token", "", "Write raw JWT to file (no decoration)")
 
 	// Config flag
@@ -159,19 +159,27 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	// 7. Prompt for missing values (skip IDP prompts if --token provided).
 	reader := bufio.NewReader(os.Stdin)
 	if flags.Token != "" {
-		if selectedIDP == "okta" {
+		switch selectedIDP {
+		case "okta":
 			if merged.Okta.TenantURL == "" {
 				merged.Okta.TenantURL = "(token-provided)"
 			}
 			if merged.Okta.ClientID == "" {
 				merged.Okta.ClientID = "(token-provided)"
 			}
-		} else {
+		case "keycloak":
 			if merged.Keycloak.IssuerURL == "" {
 				merged.Keycloak.IssuerURL = "(token-provided)"
 			}
 			if merged.Keycloak.ClientID == "" {
 				merged.Keycloak.ClientID = "(token-provided)"
+			}
+		case "entraid":
+			if merged.EntraID.IssuerURL == "" {
+				merged.EntraID.IssuerURL = "(token-provided)"
+			}
+			if merged.EntraID.ClientID == "" {
+				merged.EntraID.ClientID = "(token-provided)"
 			}
 		}
 	}
@@ -202,6 +210,8 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		auth = idp.NewOktaAuthenticator(cfg.OktaTenantURL, cfg.OktaClientID, cfg.OktaScopes, client)
 	case "keycloak":
 		auth = idp.NewKeycloakAuthenticator(cfg.KeycloakIssuerURL, cfg.KeycloakClientID, cfg.KeycloakScopes, client)
+	case "entraid":
+		auth = idp.NewEntraIDAuthenticator(cfg.EntraIDIssuerURL, cfg.EntraIDClientID, cfg.EntraIDScopes, client)
 	}
 
 	// 12. Create renderer based on flags.
