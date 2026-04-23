@@ -7,7 +7,7 @@ import (
 
 // recognizedClaims are the JWT claim names auto-included in mode A.
 // "iss" is intentionally omitted — it informs the principal, not a condition.
-var recognizedClaims = []string{"aud", "sub", "azp", "groups"}
+var recognizedClaims = []string{"aud", "sub", "azp", "groups", "tid", "oid", "upn", "roles"}
 
 // DefaultConditions returns the default set of conditions derived from a JWT's
 // claims for mode A (targeted): only recognized claims contribute.

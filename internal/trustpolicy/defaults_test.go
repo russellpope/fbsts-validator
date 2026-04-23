@@ -70,3 +70,69 @@ func TestDefaultConditions_IncludeClaim(t *testing.T) {
 		t.Errorf("--include-claim jwt:custom not honored: %+v", got)
 	}
 }
+
+func TestDefaultConditionsEntraIDClaims(t *testing.T) {
+	// Entra-shaped JWT claims fixture. Values fabricated from Entra v2.0 token docs.
+	claims := map[string]interface{}{
+		"iss":                "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0",
+		"aud":                "api://app-client-id",
+		"sub":                "aaaabbbb-0000-1111-2222-ccccddddeeee",
+		"tid":                "11111111-1111-1111-1111-111111111111",
+		"oid":                "00000000-0000-0000-0000-999999999999",
+		"upn":                "alice@contoso.com",
+		"preferred_username": "alice@contoso.com",
+		"groups":             []interface{}{"Finance-Admins", "FlashBlade-Operators"},
+		"roles":              []interface{}{"ObjectAdmin"},
+		"scp":                "user_impersonation",
+		"wids":               []interface{}{"12345678-aaaa-bbbb-cccc-123456789012"},
+		"azp":                "app-client-id",
+	}
+
+	got := DefaultConditions(claims)
+
+	byKey := map[string]Condition{}
+	for _, c := range got {
+		byKey[c.Key] = c
+	}
+
+	// Recognized Entra claims produce conditions.
+	expectEntraCond(t, byKey, "jwt:tid", "StringEquals", []string{"11111111-1111-1111-1111-111111111111"})
+	expectEntraCond(t, byKey, "jwt:oid", "StringEquals", []string{"00000000-0000-0000-0000-999999999999"})
+	expectEntraCond(t, byKey, "jwt:upn", "StringEquals", []string{"alice@contoso.com"})
+	expectEntraCond(t, byKey, "jwt:roles", "ForAnyValue:StringEquals", []string{"ObjectAdmin"})
+
+	// Not-recognized Entra claims produce no conditions.
+	for _, k := range []string{"jwt:preferred_username", "jwt:scp", "jwt:wids"} {
+		if _, ok := byKey[k]; ok {
+			t.Errorf("%s should not produce a default condition", k)
+		}
+	}
+
+	// Pre-existing recognized claims still work for Entra's shapes.
+	expectEntraCond(t, byKey, "jwt:aud", "StringEquals", []string{"api://app-client-id"})
+	expectEntraCond(t, byKey, "jwt:sub", "StringEquals", []string{"aaaabbbb-0000-1111-2222-ccccddddeeee"})
+	expectEntraCond(t, byKey, "jwt:azp", "StringEquals", []string{"app-client-id"})
+	expectEntraCond(t, byKey, "jwt:groups", "ForAnyValue:StringEquals", []string{"Finance-Admins", "FlashBlade-Operators"})
+}
+
+// expectEntraCond asserts that byKey[key] exists with the expected operator and values.
+func expectEntraCond(t *testing.T, byKey map[string]Condition, key, op string, values []string) {
+	t.Helper()
+	c, ok := byKey[key]
+	if !ok {
+		t.Errorf("missing condition for %s", key)
+		return
+	}
+	if c.Operator != op {
+		t.Errorf("%s: expected operator %q, got %q", key, op, c.Operator)
+	}
+	if len(c.Values) != len(values) {
+		t.Errorf("%s: expected %d values, got %d (%v)", key, len(values), len(c.Values), c.Values)
+		return
+	}
+	for i, v := range values {
+		if c.Values[i] != v {
+			t.Errorf("%s: values[%d] expected %q, got %q", key, i, v, c.Values[i])
+		}
+	}
+}
