@@ -1,9 +1,13 @@
 package config
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func TestLoadFromTOML(t *testing.T) {
@@ -332,5 +336,173 @@ func TestSniffArnFormat(t *testing.T) {
 		if got := SniffArnFormat(in); got != want {
 			t.Errorf("SniffArnFormat(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestEntraIDConfigParsesAndMerges(t *testing.T) {
+	tomlStr := `
+[entraid]
+issuer_url = "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0"
+client_id = "app-client-id"
+scopes = ["openid", "profile", "api://app/.default"]
+`
+	var cfg TOMLConfig
+	if _, err := toml.Decode(tomlStr, &cfg); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if cfg.EntraID.IssuerURL == "" {
+		t.Error("expected EntraID.IssuerURL to parse, got empty")
+	}
+	if cfg.EntraID.ClientID != "app-client-id" {
+		t.Errorf("expected client_id %q, got %q", "app-client-id", cfg.EntraID.ClientID)
+	}
+	if len(cfg.EntraID.Scopes) != 3 {
+		t.Errorf("expected 3 scopes, got %d", len(cfg.EntraID.Scopes))
+	}
+}
+
+func TestMergeTOMLEntraID(t *testing.T) {
+	dst := &TOMLConfig{}
+	src := &TOMLConfig{EntraID: EntraIDConfig{
+		IssuerURL: "https://login.microsoftonline.com/tenant/v2.0",
+		ClientID:  "cid",
+		Scopes:    []string{"openid"},
+	}}
+	MergeTOML(dst, src)
+	if dst.EntraID.IssuerURL != src.EntraID.IssuerURL {
+		t.Errorf("merge did not copy IssuerURL")
+	}
+	if dst.EntraID.ClientID != "cid" {
+		t.Errorf("merge did not copy ClientID")
+	}
+	if len(dst.EntraID.Scopes) != 1 {
+		t.Errorf("merge did not copy Scopes")
+	}
+}
+
+func TestToStepsConfigEntraIDDefaults(t *testing.T) {
+	tc := &TOMLConfig{EntraID: EntraIDConfig{
+		IssuerURL: "https://login.microsoftonline.com/tenant/v2.0",
+		ClientID:  "cid",
+	}}
+	sc := tc.ToStepsConfig()
+	if sc.EntraIDIssuerURL != tc.EntraID.IssuerURL {
+		t.Errorf("IssuerURL not copied")
+	}
+	if sc.EntraIDClientID != "cid" {
+		t.Errorf("ClientID not copied")
+	}
+	if len(sc.EntraIDScopes) != 2 || sc.EntraIDScopes[0] != "openid" || sc.EntraIDScopes[1] != "profile" {
+		t.Errorf("expected default scopes [openid profile], got %v", sc.EntraIDScopes)
+	}
+}
+
+func TestToStepsConfigEntraIDExplicitScopes(t *testing.T) {
+	tc := &TOMLConfig{EntraID: EntraIDConfig{
+		Scopes: []string{"openid", "api://x/.default"},
+	}}
+	sc := tc.ToStepsConfig()
+	if len(sc.EntraIDScopes) != 2 || sc.EntraIDScopes[1] != "api://x/.default" {
+		t.Errorf("explicit scopes not preserved, got %v", sc.EntraIDScopes)
+	}
+}
+
+func TestDetectIDPExplicitEntraID(t *testing.T) {
+	cfg := &TOMLConfig{EntraID: EntraIDConfig{IssuerURL: "https://login.microsoftonline.com/t/v2.0", ClientID: "c"}}
+	got, err := DetectIDP(cfg, "entraid")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "entraid" {
+		t.Errorf("expected entraid, got %q", got)
+	}
+}
+
+func TestDetectIDPExplicitEntraIDMissingSection(t *testing.T) {
+	cfg := &TOMLConfig{}
+	_, err := DetectIDP(cfg, "entraid")
+	if err == nil {
+		t.Fatal("expected error for missing [entraid] section, got nil")
+	}
+	if !strings.Contains(err.Error(), "entraid") {
+		t.Errorf("error should mention entraid, got: %v", err)
+	}
+}
+
+func TestDetectIDPAutoEntraIDOnly(t *testing.T) {
+	cfg := &TOMLConfig{EntraID: EntraIDConfig{IssuerURL: "https://login.microsoftonline.com/t/v2.0", ClientID: "c"}}
+	got, err := DetectIDP(cfg, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "entraid" {
+		t.Errorf("expected entraid, got %q", got)
+	}
+}
+
+func TestDetectIDPAutoMultipleIncludesEntraID(t *testing.T) {
+	cfg := &TOMLConfig{
+		Okta:    OktaConfig{TenantURL: "https://o"},
+		EntraID: EntraIDConfig{IssuerURL: "https://login.microsoftonline.com/t/v2.0"},
+	}
+	_, err := DetectIDP(cfg, "")
+	if err == nil {
+		t.Fatal("expected multi-IDP error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "[okta]") || !strings.Contains(msg, "[entraid]") {
+		t.Errorf("error should list the populated sections [okta] and [entraid], got: %v", err)
+	}
+	if strings.Contains(msg, "[keycloak]") {
+		t.Errorf("error should NOT mention [keycloak] when it's not populated, got: %v", err)
+	}
+}
+
+func TestDetectIDPUnknownIDP(t *testing.T) {
+	cfg := &TOMLConfig{}
+	_, err := DetectIDP(cfg, "ping")
+	if err == nil {
+		t.Fatal("expected error for unknown idp, got nil")
+	}
+	if !strings.Contains(err.Error(), "entraid") {
+		t.Errorf("error should list entraid as a supported IDP, got: %v", err)
+	}
+}
+
+func TestPromptMissingEntraIDSkipsWhenSet(t *testing.T) {
+	cfg := &TOMLConfig{
+		EntraID: EntraIDConfig{
+			IssuerURL: "https://login.microsoftonline.com/t/v2.0",
+			ClientID:  "cid",
+		},
+		FlashBlade: FlashBladeConfig{
+			STSEndpoint: "https://sts",
+			RoleARN:     "arn:aws:iam::1:role/r",
+		},
+	}
+	// Empty reader — if any prompt fires, ReadString will return io.EOF and the test fails.
+	reader := bufio.NewReader(strings.NewReader(""))
+	if err := PromptMissing(cfg, reader, "entraid"); err != nil {
+		t.Fatalf("expected no prompts for fully-populated entraid config, got error: %v", err)
+	}
+}
+
+func TestPromptMissingEntraIDPromptsForMissing(t *testing.T) {
+	cfg := &TOMLConfig{
+		FlashBlade: FlashBladeConfig{
+			STSEndpoint: "https://sts",
+			RoleARN:     "arn:aws:iam::1:role/r",
+		},
+	}
+	// Two lines of input: issuer URL, then client ID.
+	reader := bufio.NewReader(strings.NewReader("https://login.microsoftonline.com/t/v2.0\nmy-client\n"))
+	if err := PromptMissing(cfg, reader, "entraid"); err != nil {
+		t.Fatalf("PromptMissing: %v", err)
+	}
+	if cfg.EntraID.IssuerURL != "https://login.microsoftonline.com/t/v2.0" {
+		t.Errorf("expected IssuerURL from prompt, got %q", cfg.EntraID.IssuerURL)
+	}
+	if cfg.EntraID.ClientID != "my-client" {
+		t.Errorf("expected ClientID from prompt, got %q", cfg.EntraID.ClientID)
 	}
 }

@@ -24,6 +24,13 @@ type KeycloakConfig struct {
 	Scopes    []string `toml:"scopes"`
 }
 
+// EntraIDConfig holds Microsoft Entra ID TOML settings.
+type EntraIDConfig struct {
+	IssuerURL string   `toml:"issuer_url"`
+	ClientID  string   `toml:"client_id"`
+	Scopes    []string `toml:"scopes"`
+}
+
 // FlashBladeConfig holds FlashBlade STS/data endpoint TOML settings.
 type FlashBladeConfig struct {
 	STSEndpoint  string `toml:"sts_endpoint"`
@@ -50,6 +57,7 @@ type TLSConfig struct {
 type TOMLConfig struct {
 	Okta          OktaConfig        `toml:"okta"`
 	Keycloak      KeycloakConfig    `toml:"keycloak"`
+	EntraID       EntraIDConfig     `toml:"entraid"`
 	FlashBlade    FlashBladeConfig  `toml:"flashblade"`
 	S3            S3Config          `toml:"s3"`
 	TLS           TLSConfig         `toml:"tls"`
@@ -112,6 +120,15 @@ func MergeTOML(dst, src *TOMLConfig) {
 	if len(src.Keycloak.Scopes) > 0 {
 		dst.Keycloak.Scopes = src.Keycloak.Scopes
 	}
+	if src.EntraID.IssuerURL != "" {
+		dst.EntraID.IssuerURL = src.EntraID.IssuerURL
+	}
+	if src.EntraID.ClientID != "" {
+		dst.EntraID.ClientID = src.EntraID.ClientID
+	}
+	if len(src.EntraID.Scopes) > 0 {
+		dst.EntraID.Scopes = src.EntraID.Scopes
+	}
 	if src.FlashBlade.STSEndpoint != "" {
 		dst.FlashBlade.STSEndpoint = src.FlashBlade.STSEndpoint
 	}
@@ -153,30 +170,50 @@ func MergeTOML(dst, src *TOMLConfig) {
 }
 
 // DetectIDP determines which IDP to use based on the --idp flag value and
-// which config sections are populated. Returns "okta" or "keycloak".
+// which config sections are populated. Returns "okta", "keycloak", or "entraid".
 func DetectIDP(cfg *TOMLConfig, flagIDP string) (string, error) {
+	hasOkta := cfg.Okta.TenantURL != "" || cfg.Okta.ClientID != ""
+	hasKeycloak := cfg.Keycloak.IssuerURL != "" || cfg.Keycloak.ClientID != ""
+	hasEntraID := cfg.EntraID.IssuerURL != "" || cfg.EntraID.ClientID != ""
+
 	if flagIDP != "" {
 		switch flagIDP {
 		case "okta":
-			if cfg.Okta.TenantURL == "" && cfg.Okta.ClientID == "" {
+			if !hasOkta {
 				return "", fmt.Errorf("--idp okta specified but no [okta] section in config")
 			}
 			return "okta", nil
 		case "keycloak":
-			if cfg.Keycloak.IssuerURL == "" && cfg.Keycloak.ClientID == "" {
+			if !hasKeycloak {
 				return "", fmt.Errorf("--idp keycloak specified but no [keycloak] section in config")
 			}
 			return "keycloak", nil
+		case "entraid":
+			if !hasEntraID {
+				return "", fmt.Errorf("--idp entraid specified but no [entraid] section in config")
+			}
+			return "entraid", nil
 		default:
-			return "", fmt.Errorf("unknown IDP %q (supported: okta, keycloak)", flagIDP)
+			return "", fmt.Errorf("unknown IDP %q (supported: okta, keycloak, entraid)", flagIDP)
 		}
 	}
 
-	hasOkta := cfg.Okta.TenantURL != "" || cfg.Okta.ClientID != ""
-	hasKeycloak := cfg.Keycloak.IssuerURL != "" || cfg.Keycloak.ClientID != ""
+	populated := []string{}
+	if hasOkta {
+		populated = append(populated, "[okta]")
+	}
+	if hasKeycloak {
+		populated = append(populated, "[keycloak]")
+	}
+	if hasEntraID {
+		populated = append(populated, "[entraid]")
+	}
 
-	if hasOkta && hasKeycloak {
-		return "", fmt.Errorf("multiple IDPs configured ([okta], [keycloak]), use --idp to select")
+	if len(populated) > 1 {
+		return "", fmt.Errorf("multiple IDPs configured (%s), use --idp to select", strings.Join(populated, ", "))
+	}
+	if hasEntraID {
+		return "entraid", nil
 	}
 	if hasKeycloak {
 		return "keycloak", nil
@@ -270,6 +307,11 @@ func (tc *TOMLConfig) ToStepsConfig() *steps.Config {
 		keycloakScopes = []string{"openid", "profile"}
 	}
 
+	entraIDScopes := tc.EntraID.Scopes
+	if len(entraIDScopes) == 0 {
+		entraIDScopes = []string{"openid", "profile"}
+	}
+
 	duration := tc.FlashBlade.Duration
 	if duration == 0 {
 		duration = 3600
@@ -282,6 +324,9 @@ func (tc *TOMLConfig) ToStepsConfig() *steps.Config {
 		KeycloakIssuerURL: tc.Keycloak.IssuerURL,
 		KeycloakClientID:  tc.Keycloak.ClientID,
 		KeycloakScopes:    keycloakScopes,
+		EntraIDIssuerURL:  tc.EntraID.IssuerURL,
+		EntraIDClientID:   tc.EntraID.ClientID,
+		EntraIDScopes:     entraIDScopes,
 		STSEndpoint:       tc.FlashBlade.STSEndpoint,
 		DataEndpoint:      tc.FlashBlade.DataEndpoint,
 		RoleARN:           tc.FlashBlade.RoleARN,
@@ -297,7 +342,7 @@ func (tc *TOMLConfig) ToStepsConfig() *steps.Config {
 }
 
 // PromptMissing interactively asks for any required fields that are empty.
-// selectedIDP must be "okta" or "keycloak"; it controls which IDP fields are prompted.
+// selectedIDP must be "okta", "keycloak", or "entraid"; it controls which IDP fields are prompted.
 func PromptMissing(cfg *TOMLConfig, reader *bufio.Reader, selectedIDP string) error {
 	switch selectedIDP {
 	case "keycloak":
@@ -316,6 +361,23 @@ func PromptMissing(cfg *TOMLConfig, reader *bufio.Reader, selectedIDP string) er
 				return fmt.Errorf("read keycloak client id: %w", err)
 			}
 			cfg.Keycloak.ClientID = trimNewline(val)
+		}
+	case "entraid":
+		if cfg.EntraID.IssuerURL == "" {
+			fmt.Print("EntraID issuer URL (e.g. https://login.microsoftonline.com/<tenant-id>/v2.0): ")
+			val, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("read entraid issuer url: %w", err)
+			}
+			cfg.EntraID.IssuerURL = trimNewline(val)
+		}
+		if cfg.EntraID.ClientID == "" {
+			fmt.Print("EntraID client ID: ")
+			val, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("read entraid client id: %w", err)
+			}
+			cfg.EntraID.ClientID = trimNewline(val)
 		}
 	default: // okta
 		if cfg.Okta.TenantURL == "" {

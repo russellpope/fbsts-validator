@@ -7,7 +7,7 @@ Every piece of data exchanged during the flow is displayed in rich terminal outp
 ## Features
 
 - **End-to-end STS validation** — IDP OIDC → FlashBlade STS → S3 CRUD in a single command
-- **Multi-IDP support** — Okta and Keycloak, with auto-detection or explicit `--idp` selection
+- **Multi-IDP support** — Okta, Keycloak, and Microsoft Entra ID, with auto-detection or explicit `--idp` selection
 - **Device code auth** — CLI-friendly authentication with automatic browser launch
 - **JWT decode** — `fbsts decode` command to inspect tokens from files with syntax highlighting
 - **Trust policy generation** — `fbsts trust-policy` produces FlashBlade trust-policy rules from JWTs (or pure flags) as JSON, ready to feed into a REST/CLI wrapper
@@ -92,6 +92,21 @@ client_id = "my-keycloak-client"
 scopes = ["openid", "profile"]
 ```
 
+### Using Microsoft Entra ID
+
+```bash
+fbsts validate --idp entraid --insecure
+```
+
+With a config file:
+
+```toml
+[entraid]
+issuer_url = "https://login.microsoftonline.com/<tenant-id>/v2.0"
+client_id = "<application-client-id>"
+scopes = ["openid", "profile"]
+```
+
 ### Decoding Tokens
 
 Export and inspect JWTs for trust policy authoring:
@@ -140,11 +155,11 @@ The tool executes four steps in sequence:
 
 ### Step 1: Device Auth
 
-Authenticates with your identity provider (Okta or Keycloak) using the [OAuth 2.0 device authorization grant](https://datatracker.ietf.org/doc/html/rfc8628). The tool displays a URL and code, opens your browser automatically, and waits for you to authorize. No passwords are handled by the tool.
+Authenticates with your identity provider (Okta, Keycloak, or Microsoft Entra ID) using the [OAuth 2.0 device authorization grant](https://datatracker.ietf.org/doc/html/rfc8628). The tool displays a URL and code, opens your browser automatically, and waits for you to authorize. No passwords are handled by the tool.
 
 ### Step 2: Token Decode
 
-Decodes the OIDC JWT ID token and displays the header and claims. Trust-policy-relevant claims (`iss`, `sub`, `aud`, `groups`) are highlighted. This step does not verify the signature — FlashBlade handles that.
+Decodes the OIDC JWT ID token and displays the header and claims. Trust-policy-relevant claims (`iss`, `sub`, `aud`, `groups`, `tid`, `oid`, `upn`, `roles`) are highlighted. This step does not verify the signature — FlashBlade handles that.
 
 ### Step 3: STS AssumeRoleWithWebIdentity
 
@@ -178,6 +193,11 @@ scopes = ["openid", "profile", "groups"]
 # client_id = "my-keycloak-client"
 # scopes = ["openid", "profile"]
 
+# [entraid]
+# issuer_url = "https://login.microsoftonline.com/<tenant-id>/v2.0"
+# client_id = "<application-client-id>"
+# scopes = ["openid", "profile"]
+
 [flashblade]
 sts_endpoint = "https://fb-sts.example.com"
 data_endpoint = "https://fb-data.example.com"
@@ -195,7 +215,7 @@ insecure = false
 ca_cert = ""
 ```
 
-If both `[okta]` and `[keycloak]` sections are present, use `--idp` to select which to use. If only one is configured, it's auto-detected.
+If more than one IDP section is present, use `--idp` to select which to use (`okta`, `keycloak`, or `entraid`). If only one is configured, it's auto-detected.
 
 ### Config Resolution Order
 
@@ -220,7 +240,7 @@ fbsts version               Print version information
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--idp` | Identity provider: `okta` or `keycloak` | auto-detected |
+| `--idp` | Identity provider: `okta`, `keycloak`, or `entraid` | auto-detected |
 | `--okta-url` | Okta tenant URL | |
 | `--client-id` | OIDC application client ID | |
 | `--scopes` | OIDC scopes (comma-separated) | `openid,profile,groups` |
@@ -282,7 +302,7 @@ fbsts validate --insecure
 fbsts validate --ca-cert /path/to/flashblade-ca.pem
 ```
 
-Both flags apply to all HTTPS connections: Okta, STS VIP, and Data VIP.
+Both flags apply to all HTTPS connections: the identity provider, STS VIP, and Data VIP.
 
 ## Error Handling
 
@@ -334,6 +354,31 @@ The tool requests `openid`, `profile`, and `groups` scopes by default. Customize
 5. If using Keycloak 25+, start with `--features-disabled=organization` to avoid protocol mapper issues with the device code flow
 
 The `issuer_url` in the config must include the realm path (e.g., `https://keycloak.example.com/realms/my-realm`).
+
+### Microsoft Entra ID
+
+1. **An app registration** with the **Mobile and desktop applications** platform enabled (redirect URI `https://login.microsoftonline.com/common/oauth2/nativeclient`)
+2. **"Allow public client flows"** enabled under Authentication → Advanced settings — the device code flow requires this
+3. **API permissions** — add the `openid` and `profile` delegated permissions from Microsoft Graph, plus any application-specific scopes
+4. Request a **`<client-id>/.default` scope** (using your app's raw client ID, e.g. `407c9831-d155-40e9-8def-06d5606b4a5e/.default`). This is what pins the JWT's audience to your application instead of Microsoft Graph — without it the trust policy will reject the token. The `api://<app-id>/.default` form works only when a separate API resource is configured; when the client and resource are the same app (the default fbsts setup), Entra returns `AADSTS90009` and requires the raw-GUID form.
+5. **Users or groups** assigned to the application (Enterprise applications → [app] → Users and groups), if assignment is required
+
+The `issuer_url` must include the tenant ID (e.g., `https://login.microsoftonline.com/<tenant-id>/v2.0`). Use the tenant-specific URL (not `common` or `organizations`) so the JWT's `iss` claim matches exactly.
+
+If auto-detection reports multiple IDPs configured, select with `--idp entraid`.
+
+#### Trust-Policy Claims
+
+`fbsts trust-policy` recognizes the following Entra ID-specific claims by default:
+
+| Claim | Operator | Notes |
+|-------|----------|-------|
+| `tid` | `StringEquals` | Entra tenant ID |
+| `oid` | `StringEquals` | Stable user object ID |
+| `upn` | `StringEquals` | User principal name |
+| `roles` | `ForAnyValue:StringEquals` | App role assignments |
+
+Entra group values may be object GUIDs, cloud display names, or `sam_account_name` depending on the Entra app manifest's `optionalClaims.groups.additionalProperties` setting. The tool emits whichever value the JWT carries.
 
 ## FlashBlade Setup
 
@@ -388,7 +433,7 @@ The tool uses a pipeline architecture with four pluggable steps:
 CLI → Config → IDP Selection → Runner → [DeviceAuth → TokenDecode → STSAssume → S3Validate] → Renderer
 ```
 
-- **IDPAuthenticator** interface abstracts OIDC device code flow across providers (Okta, Keycloak)
+- **IDPAuthenticator** interface abstracts OIDC device code flow across providers (Okta, Keycloak, Microsoft Entra ID)
 - **Steps** implement a common `Step` interface and pass state via a shared `FlowContext`
 - **Renderers** implement a `Renderer` interface — `SubwayRenderer` (bubbletea TUI) and `PanelRenderer` (lipgloss panels) are included
 - **SigV4 signing** is hand-rolled (no AWS SDK) for full visibility into request/response details

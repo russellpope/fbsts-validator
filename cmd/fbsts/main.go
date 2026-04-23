@@ -64,12 +64,12 @@ func main() {
 
 	// Behavior flags
 	validateCmd.Flags().BoolVar(&flagContinueOnError, "continue-on-error", false, "Continue pipeline on step failure")
-	validateCmd.Flags().StringVar(&flags.Token, "token", "", "Pre-supplied OIDC token (skips Okta device auth)")
+	validateCmd.Flags().StringVar(&flags.Token, "token", "", "Pre-supplied OIDC token (skips IDP device auth)")
 	validateCmd.Flags().IntVar(&flags.Duration, "duration", 0, "Requested credential duration in seconds")
 	validateCmd.Flags().BoolVar(&flagUnmask, "unmask", false, "Show SecretAccessKey and SessionToken in clear text")
 
 	// IDP flags
-	validateCmd.Flags().StringVar(&flagIDP, "idp", "", "Identity provider: okta or keycloak (auto-detected if omitted)")
+	validateCmd.Flags().StringVar(&flagIDP, "idp", "", "identity provider to use (okta, keycloak, entraid); auto-detected from config if omitted")
 	validateCmd.Flags().StringVar(&flagEmitToken, "emit-token", "", "Write raw JWT to file (no decoration)")
 
 	// Config flag
@@ -159,19 +159,27 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	// 7. Prompt for missing values (skip IDP prompts if --token provided).
 	reader := bufio.NewReader(os.Stdin)
 	if flags.Token != "" {
-		if selectedIDP == "okta" {
+		switch selectedIDP {
+		case "okta":
 			if merged.Okta.TenantURL == "" {
 				merged.Okta.TenantURL = "(token-provided)"
 			}
 			if merged.Okta.ClientID == "" {
 				merged.Okta.ClientID = "(token-provided)"
 			}
-		} else {
+		case "keycloak":
 			if merged.Keycloak.IssuerURL == "" {
 				merged.Keycloak.IssuerURL = "(token-provided)"
 			}
 			if merged.Keycloak.ClientID == "" {
 				merged.Keycloak.ClientID = "(token-provided)"
+			}
+		case "entraid":
+			if merged.EntraID.IssuerURL == "" {
+				merged.EntraID.IssuerURL = "(token-provided)"
+			}
+			if merged.EntraID.ClientID == "" {
+				merged.EntraID.ClientID = "(token-provided)"
 			}
 		}
 	}
@@ -202,6 +210,8 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		auth = idp.NewOktaAuthenticator(cfg.OktaTenantURL, cfg.OktaClientID, cfg.OktaScopes, client)
 	case "keycloak":
 		auth = idp.NewKeycloakAuthenticator(cfg.KeycloakIssuerURL, cfg.KeycloakClientID, cfg.KeycloakScopes, client)
+	case "entraid":
+		auth = idp.NewEntraIDAuthenticator(cfg.EntraIDIssuerURL, cfg.EntraIDClientID, cfg.EntraIDScopes, client)
 	}
 
 	// 12. Create renderer based on flags.
@@ -282,7 +292,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	const sampleConfig = `# FlashBlade STS Validator Configuration
 # Copy this to ~/.fbsts.toml or ./.fbsts.toml and fill in your values.
 # CLI flags override config file values. See: fbsts validate --help
-# If both [okta] and [keycloak] are configured, use --idp to select.
+# If two or more of [okta] / [keycloak] / [entraid] are populated, use --idp to select.
 
 [okta]
 tenant_url = "https://myorg.okta.com"
@@ -293,6 +303,16 @@ scopes = ["openid", "profile", "groups"]
 # issuer_url = "https://keycloak.example.com/realms/my-realm"
 # client_id = "my-keycloak-client"
 # scopes = ["openid", "profile"]
+
+# [entraid]
+# issuer_url = "https://login.microsoftonline.com/<tenant-id>/v2.0"
+# client_id = "<application-client-id>"
+# # Entra needs a <client-id>/.default scope so the JWT targets your app
+# # instead of Microsoft Graph. When the client app is also the resource
+# # (the default fbsts setup), use the raw client-ID form below; the
+# # api://<app-id>/.default form fails with AADSTS90009 in that scenario
+# # and is only appropriate when a separate API resource is configured.
+# scopes = ["openid", "profile", "<application-client-id>/.default"]
 
 [flashblade]
 sts_endpoint = "https://fb-sts.example.com"
@@ -316,6 +336,7 @@ ca_cert = ""
 # [oidc_providers]
 # "https://myorg.okta.com" = "okta-for-object"
 # "https://keycloak.example.com/realms/my-realm" = "keycloak-realm"
+# "https://login.microsoftonline.com/<tenant-id>/v2.0" = "entraid-provider"
 `
 
 	if err := os.WriteFile(targetPath, []byte(sampleConfig), 0600); err != nil {
