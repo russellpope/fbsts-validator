@@ -307,9 +307,12 @@ scopes = ["openid", "profile", "groups"]
 # [entraid]
 # issuer_url = "https://login.microsoftonline.com/<tenant-id>/v2.0"
 # client_id = "<application-client-id>"
-# # Most Entra setups also need an api://<app-id>/.default scope to receive a
-# # JWT with your app's audience rather than Microsoft Graph's.
-# scopes = ["openid", "profile"]
+# # Entra needs a <client-id>/.default scope so the JWT targets your app
+# # instead of Microsoft Graph. When the client app is also the resource
+# # (the default fbsts setup), use the raw client-ID form below; the
+# # api://<app-id>/.default form fails with AADSTS90009 in that scenario
+# # and is only appropriate when a separate API resource is configured.
+# scopes = ["openid", "profile", "<application-client-id>/.default"]
 
 [flashblade]
 sts_endpoint = "https://fb-sts.example.com"

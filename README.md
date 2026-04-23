@@ -360,7 +360,7 @@ The `issuer_url` in the config must include the realm path (e.g., `https://keycl
 1. **An app registration** with the **Mobile and desktop applications** platform enabled (redirect URI `https://login.microsoftonline.com/common/oauth2/nativeclient`)
 2. **"Allow public client flows"** enabled under Authentication → Advanced settings — the device code flow requires this
 3. **API permissions** — add the `openid` and `profile` delegated permissions from Microsoft Graph, plus any application-specific scopes
-4. Add an **`api://<app-id>/.default` scope** to your app's "Expose an API" settings; requesting it ensures the issued JWT targets your application's audience rather than Microsoft Graph's — otherwise FlashBlade's trust policy will reject the token
+4. Request a **`<client-id>/.default` scope** (using your app's raw client ID, e.g. `407c9831-d155-40e9-8def-06d5606b4a5e/.default`). This is what pins the JWT's audience to your application instead of Microsoft Graph — without it the trust policy will reject the token. The `api://<app-id>/.default` form works only when a separate API resource is configured; when the client and resource are the same app (the default fbsts setup), Entra returns `AADSTS90009` and requires the raw-GUID form.
 5. **Users or groups** assigned to the application (Enterprise applications → [app] → Users and groups), if assignment is required
 
 The `issuer_url` must include the tenant ID (e.g., `https://login.microsoftonline.com/<tenant-id>/v2.0`). Use the tenant-specific URL (not `common` or `organizations`) so the JWT's `iss` claim matches exactly.
