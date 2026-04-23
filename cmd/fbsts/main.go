@@ -292,7 +292,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	const sampleConfig = `# FlashBlade STS Validator Configuration
 # Copy this to ~/.fbsts.toml or ./.fbsts.toml and fill in your values.
 # CLI flags override config file values. See: fbsts validate --help
-# If both [okta] and [keycloak] are configured, use --idp to select.
+# If two or more of [okta] / [keycloak] / [entraid] are populated, use --idp to select.
 
 [okta]
 tenant_url = "https://myorg.okta.com"
@@ -302,6 +302,13 @@ scopes = ["openid", "profile", "groups"]
 # [keycloak]
 # issuer_url = "https://keycloak.example.com/realms/my-realm"
 # client_id = "my-keycloak-client"
+# scopes = ["openid", "profile"]
+
+# [entraid]
+# issuer_url = "https://login.microsoftonline.com/<tenant-id>/v2.0"
+# client_id = "<application-client-id>"
+# # Most Entra setups also need an api://<app-id>/.default scope to receive a
+# # JWT with your app's audience rather than Microsoft Graph's.
 # scopes = ["openid", "profile"]
 
 [flashblade]
@@ -326,6 +333,7 @@ ca_cert = ""
 # [oidc_providers]
 # "https://myorg.okta.com" = "okta-for-object"
 # "https://keycloak.example.com/realms/my-realm" = "keycloak-realm"
+# "https://login.microsoftonline.com/<tenant-id>/v2.0" = "entraid-provider"
 `
 
 	if err := os.WriteFile(targetPath, []byte(sampleConfig), 0600); err != nil {
