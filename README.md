@@ -53,6 +53,8 @@ make build-all        # build for all platforms (output in build/)
 
 ## Quick Start
 
+> **Detailed setup per IDP:** step-by-step guides for each tested identity provider live under [`docs/idp/`](docs/idp/README.md) — [Okta](docs/idp/okta.md), [Keycloak](docs/idp/keycloak.md), [Microsoft Entra ID](docs/idp/entraid.md). Each covers portal configuration, caveats, and error-code troubleshooting. Start there if you're configuring an IDP for the first time.
+
 ```bash
 # 1. Generate a config file
 fbsts init
@@ -79,6 +81,8 @@ fbsts validate \
 
 ### Using Keycloak
 
+Full setup guide: [`docs/idp/keycloak.md`](docs/idp/keycloak.md).
+
 ```bash
 fbsts validate --idp keycloak --insecure
 ```
@@ -94,6 +98,8 @@ scopes = ["openid", "profile"]
 
 ### Using Microsoft Entra ID
 
+Full setup guide: [`docs/idp/entraid.md`](docs/idp/entraid.md) (includes troubleshooting for common AADSTS error codes).
+
 ```bash
 fbsts validate --idp entraid --insecure
 ```
@@ -104,7 +110,8 @@ With a config file:
 [entraid]
 issuer_url = "https://login.microsoftonline.com/<tenant-id>/v2.0"
 client_id = "<application-client-id>"
-scopes = ["openid", "profile"]
+# See docs/idp/entraid.md — use the raw-GUID form, not api://<client-id>/.default
+scopes = ["openid", "profile", "<application-client-id>/.default"]
 ```
 
 ### Decoding Tokens
