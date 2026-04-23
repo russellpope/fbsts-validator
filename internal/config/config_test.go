@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
@@ -465,5 +466,43 @@ func TestDetectIDPUnknownIDP(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "entraid") {
 		t.Errorf("error should list entraid as a supported IDP, got: %v", err)
+	}
+}
+
+func TestPromptMissingEntraIDSkipsWhenSet(t *testing.T) {
+	cfg := &TOMLConfig{
+		EntraID: EntraIDConfig{
+			IssuerURL: "https://login.microsoftonline.com/t/v2.0",
+			ClientID:  "cid",
+		},
+		FlashBlade: FlashBladeConfig{
+			STSEndpoint: "https://sts",
+			RoleARN:     "arn:aws:iam::1:role/r",
+		},
+	}
+	// Empty reader — if any prompt fires, ReadString will return io.EOF and the test fails.
+	reader := bufio.NewReader(strings.NewReader(""))
+	if err := PromptMissing(cfg, reader, "entraid"); err != nil {
+		t.Fatalf("expected no prompts for fully-populated entraid config, got error: %v", err)
+	}
+}
+
+func TestPromptMissingEntraIDPromptsForMissing(t *testing.T) {
+	cfg := &TOMLConfig{
+		FlashBlade: FlashBladeConfig{
+			STSEndpoint: "https://sts",
+			RoleARN:     "arn:aws:iam::1:role/r",
+		},
+	}
+	// Two lines of input: issuer URL, then client ID.
+	reader := bufio.NewReader(strings.NewReader("https://login.microsoftonline.com/t/v2.0\nmy-client\n"))
+	if err := PromptMissing(cfg, reader, "entraid"); err != nil {
+		t.Fatalf("PromptMissing: %v", err)
+	}
+	if cfg.EntraID.IssuerURL != "https://login.microsoftonline.com/t/v2.0" {
+		t.Errorf("expected IssuerURL from prompt, got %q", cfg.EntraID.IssuerURL)
+	}
+	if cfg.EntraID.ClientID != "my-client" {
+		t.Errorf("expected ClientID from prompt, got %q", cfg.EntraID.ClientID)
 	}
 }

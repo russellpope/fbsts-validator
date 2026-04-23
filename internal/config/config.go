@@ -362,6 +362,23 @@ func PromptMissing(cfg *TOMLConfig, reader *bufio.Reader, selectedIDP string) er
 			}
 			cfg.Keycloak.ClientID = trimNewline(val)
 		}
+	case "entraid":
+		if cfg.EntraID.IssuerURL == "" {
+			fmt.Print("EntraID issuer URL (e.g. https://login.microsoftonline.com/<tenant-id>/v2.0): ")
+			val, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("read entraid issuer url: %w", err)
+			}
+			cfg.EntraID.IssuerURL = trimNewline(val)
+		}
+		if cfg.EntraID.ClientID == "" {
+			fmt.Print("EntraID client ID: ")
+			val, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("read entraid client id: %w", err)
+			}
+			cfg.EntraID.ClientID = trimNewline(val)
+		}
 	default: // okta
 		if cfg.Okta.TenantURL == "" {
 			fmt.Print("Okta tenant URL: ")
