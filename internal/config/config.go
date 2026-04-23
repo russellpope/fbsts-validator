@@ -342,7 +342,7 @@ func (tc *TOMLConfig) ToStepsConfig() *steps.Config {
 }
 
 // PromptMissing interactively asks for any required fields that are empty.
-// selectedIDP must be "okta" or "keycloak"; it controls which IDP fields are prompted.
+// selectedIDP must be "okta", "keycloak", or "entraid"; it controls which IDP fields are prompted.
 func PromptMissing(cfg *TOMLConfig, reader *bufio.Reader, selectedIDP string) error {
 	switch selectedIDP {
 	case "keycloak":

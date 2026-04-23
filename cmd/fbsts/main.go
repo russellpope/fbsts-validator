@@ -64,7 +64,7 @@ func main() {
 
 	// Behavior flags
 	validateCmd.Flags().BoolVar(&flagContinueOnError, "continue-on-error", false, "Continue pipeline on step failure")
-	validateCmd.Flags().StringVar(&flags.Token, "token", "", "Pre-supplied OIDC token (skips Okta device auth)")
+	validateCmd.Flags().StringVar(&flags.Token, "token", "", "Pre-supplied OIDC token (skips IDP device auth)")
 	validateCmd.Flags().IntVar(&flags.Duration, "duration", 0, "Requested credential duration in seconds")
 	validateCmd.Flags().BoolVar(&flagUnmask, "unmask", false, "Show SecretAccessKey and SessionToken in clear text")
 
