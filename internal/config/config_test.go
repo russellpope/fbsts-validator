@@ -377,3 +377,30 @@ func TestMergeTOMLEntraID(t *testing.T) {
 		t.Errorf("merge did not copy Scopes")
 	}
 }
+
+func TestToStepsConfigEntraIDDefaults(t *testing.T) {
+	tc := &TOMLConfig{EntraID: EntraIDConfig{
+		IssuerURL: "https://login.microsoftonline.com/tenant/v2.0",
+		ClientID:  "cid",
+	}}
+	sc := tc.ToStepsConfig()
+	if sc.EntraIDIssuerURL != tc.EntraID.IssuerURL {
+		t.Errorf("IssuerURL not copied")
+	}
+	if sc.EntraIDClientID != "cid" {
+		t.Errorf("ClientID not copied")
+	}
+	if len(sc.EntraIDScopes) != 2 || sc.EntraIDScopes[0] != "openid" || sc.EntraIDScopes[1] != "profile" {
+		t.Errorf("expected default scopes [openid profile], got %v", sc.EntraIDScopes)
+	}
+}
+
+func TestToStepsConfigEntraIDExplicitScopes(t *testing.T) {
+	tc := &TOMLConfig{EntraID: EntraIDConfig{
+		Scopes: []string{"openid", "api://x/.default"},
+	}}
+	sc := tc.ToStepsConfig()
+	if len(sc.EntraIDScopes) != 2 || sc.EntraIDScopes[1] != "api://x/.default" {
+		t.Errorf("explicit scopes not preserved, got %v", sc.EntraIDScopes)
+	}
+}

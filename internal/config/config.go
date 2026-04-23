@@ -287,6 +287,11 @@ func (tc *TOMLConfig) ToStepsConfig() *steps.Config {
 		keycloakScopes = []string{"openid", "profile"}
 	}
 
+	entraIDScopes := tc.EntraID.Scopes
+	if len(entraIDScopes) == 0 {
+		entraIDScopes = []string{"openid", "profile"}
+	}
+
 	duration := tc.FlashBlade.Duration
 	if duration == 0 {
 		duration = 3600
@@ -299,6 +304,9 @@ func (tc *TOMLConfig) ToStepsConfig() *steps.Config {
 		KeycloakIssuerURL: tc.Keycloak.IssuerURL,
 		KeycloakClientID:  tc.Keycloak.ClientID,
 		KeycloakScopes:    keycloakScopes,
+		EntraIDIssuerURL:  tc.EntraID.IssuerURL,
+		EntraIDClientID:   tc.EntraID.ClientID,
+		EntraIDScopes:     entraIDScopes,
 		STSEndpoint:       tc.FlashBlade.STSEndpoint,
 		DataEndpoint:      tc.FlashBlade.DataEndpoint,
 		RoleARN:           tc.FlashBlade.RoleARN,
