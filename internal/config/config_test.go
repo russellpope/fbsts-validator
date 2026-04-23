@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -402,5 +403,67 @@ func TestToStepsConfigEntraIDExplicitScopes(t *testing.T) {
 	sc := tc.ToStepsConfig()
 	if len(sc.EntraIDScopes) != 2 || sc.EntraIDScopes[1] != "api://x/.default" {
 		t.Errorf("explicit scopes not preserved, got %v", sc.EntraIDScopes)
+	}
+}
+
+func TestDetectIDPExplicitEntraID(t *testing.T) {
+	cfg := &TOMLConfig{EntraID: EntraIDConfig{IssuerURL: "https://login.microsoftonline.com/t/v2.0", ClientID: "c"}}
+	got, err := DetectIDP(cfg, "entraid")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "entraid" {
+		t.Errorf("expected entraid, got %q", got)
+	}
+}
+
+func TestDetectIDPExplicitEntraIDMissingSection(t *testing.T) {
+	cfg := &TOMLConfig{}
+	_, err := DetectIDP(cfg, "entraid")
+	if err == nil {
+		t.Fatal("expected error for missing [entraid] section, got nil")
+	}
+	if !strings.Contains(err.Error(), "entraid") {
+		t.Errorf("error should mention entraid, got: %v", err)
+	}
+}
+
+func TestDetectIDPAutoEntraIDOnly(t *testing.T) {
+	cfg := &TOMLConfig{EntraID: EntraIDConfig{IssuerURL: "https://login.microsoftonline.com/t/v2.0", ClientID: "c"}}
+	got, err := DetectIDP(cfg, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "entraid" {
+		t.Errorf("expected entraid, got %q", got)
+	}
+}
+
+func TestDetectIDPAutoMultipleIncludesEntraID(t *testing.T) {
+	cfg := &TOMLConfig{
+		Okta:    OktaConfig{TenantURL: "https://o"},
+		EntraID: EntraIDConfig{IssuerURL: "https://login.microsoftonline.com/t/v2.0"},
+	}
+	_, err := DetectIDP(cfg, "")
+	if err == nil {
+		t.Fatal("expected multi-IDP error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "[okta]") || !strings.Contains(msg, "[entraid]") {
+		t.Errorf("error should list the populated sections [okta] and [entraid], got: %v", err)
+	}
+	if strings.Contains(msg, "[keycloak]") {
+		t.Errorf("error should NOT mention [keycloak] when it's not populated, got: %v", err)
+	}
+}
+
+func TestDetectIDPUnknownIDP(t *testing.T) {
+	cfg := &TOMLConfig{}
+	_, err := DetectIDP(cfg, "ping")
+	if err == nil {
+		t.Fatal("expected error for unknown idp, got nil")
+	}
+	if !strings.Contains(err.Error(), "entraid") {
+		t.Errorf("error should list entraid as a supported IDP, got: %v", err)
 	}
 }

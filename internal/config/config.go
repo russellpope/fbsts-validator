@@ -170,30 +170,50 @@ func MergeTOML(dst, src *TOMLConfig) {
 }
 
 // DetectIDP determines which IDP to use based on the --idp flag value and
-// which config sections are populated. Returns "okta" or "keycloak".
+// which config sections are populated. Returns "okta", "keycloak", or "entraid".
 func DetectIDP(cfg *TOMLConfig, flagIDP string) (string, error) {
+	hasOkta := cfg.Okta.TenantURL != "" || cfg.Okta.ClientID != ""
+	hasKeycloak := cfg.Keycloak.IssuerURL != "" || cfg.Keycloak.ClientID != ""
+	hasEntraID := cfg.EntraID.IssuerURL != "" || cfg.EntraID.ClientID != ""
+
 	if flagIDP != "" {
 		switch flagIDP {
 		case "okta":
-			if cfg.Okta.TenantURL == "" && cfg.Okta.ClientID == "" {
+			if !hasOkta {
 				return "", fmt.Errorf("--idp okta specified but no [okta] section in config")
 			}
 			return "okta", nil
 		case "keycloak":
-			if cfg.Keycloak.IssuerURL == "" && cfg.Keycloak.ClientID == "" {
+			if !hasKeycloak {
 				return "", fmt.Errorf("--idp keycloak specified but no [keycloak] section in config")
 			}
 			return "keycloak", nil
+		case "entraid":
+			if !hasEntraID {
+				return "", fmt.Errorf("--idp entraid specified but no [entraid] section in config")
+			}
+			return "entraid", nil
 		default:
-			return "", fmt.Errorf("unknown IDP %q (supported: okta, keycloak)", flagIDP)
+			return "", fmt.Errorf("unknown IDP %q (supported: okta, keycloak, entraid)", flagIDP)
 		}
 	}
 
-	hasOkta := cfg.Okta.TenantURL != "" || cfg.Okta.ClientID != ""
-	hasKeycloak := cfg.Keycloak.IssuerURL != "" || cfg.Keycloak.ClientID != ""
+	populated := []string{}
+	if hasOkta {
+		populated = append(populated, "[okta]")
+	}
+	if hasKeycloak {
+		populated = append(populated, "[keycloak]")
+	}
+	if hasEntraID {
+		populated = append(populated, "[entraid]")
+	}
 
-	if hasOkta && hasKeycloak {
-		return "", fmt.Errorf("multiple IDPs configured ([okta], [keycloak]), use --idp to select")
+	if len(populated) > 1 {
+		return "", fmt.Errorf("multiple IDPs configured (%s), use --idp to select", strings.Join(populated, ", "))
+	}
+	if hasEntraID {
+		return "entraid", nil
 	}
 	if hasKeycloak {
 		return "keycloak", nil
