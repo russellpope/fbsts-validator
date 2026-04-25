@@ -9,9 +9,10 @@
 *.secret
 
 # Design docs and brainstorm artifacts — ignore everything under docs/ except
-# the user-facing IDP setup guides.
+# the user-facing IDP setup guides and integration guides.
 docs/*
 !docs/idp/
+!docs/integration/
 .superpowers/
 
 # Tokens
